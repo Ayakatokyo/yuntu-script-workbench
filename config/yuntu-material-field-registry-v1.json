@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 1,
+  "fields": [
+    {
+      "id": "title",
+      "label": "视频标题",
+      "kind": "text",
+      "path": ["title"],
+      "filterOperators": ["eq", "contains"],
+      "sortable": true,
+      "labelEvidence": "真实云图导出表表头"
+    },
+    {
+      "id": "material_id",
+      "label": "素材 ID",
+      "kind": "identifier",
+      "path": ["material_id"],
+      "filterOperators": ["eq", "contains"],
+      "sortable": true,
+      "labelEvidence": "由同一视频链接 code 对齐的运行记录 ID"
+    },
+    {
+      "id": "material_uri",
+      "label": "视频编码",
+      "kind": "identifier",
+      "path": ["material_uri"],
+      "filterOperators": ["eq", "contains"],
+      "sortable": true,
+      "labelEvidence": "视频链接的 code 参数"
+    },
+    {
+      "id": "people_tags",
+      "label": "人群属性",
+      "kind": "string_list",
+      "path": ["people_tags"],
+      "filterOperators": ["eq", "contains"],
+      "sortable": false,
+      "labelEvidence": "人群属性"
+    },
+    {
+      "id": "material_tags",
+      "label": "素材标签",
+      "kind": "string_list",
+      "path": ["material_tags"],
+      "filterOperators": ["eq", "contains"],
+      "sortable": false,
+      "labelEvidence": "运行返回 material_tag_entry；CSV营销卖点本批为空，不能将二者等同"
+    },
+    {
+      "id": "publish_time",
+      "label": "首投日期",
+      "kind": "date",
+      "path": ["publish_time"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "首投日期"
+    },
+    {
+      "id": "rank",
+      "label": "榜单排名",
+      "kind": "integer",
+      "path": ["rank"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "API返回顺序（派生，不声称来自CSV）"
+    },
+    {
+      "id": "video_duration",
+      "label": "视频时长（秒）",
+      "kind": "number",
+      "path": ["video_duration"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "运行返回 video_duration"
+    },
+    {
+      "id": "metrics.show_cnt",
+      "label": "曝光量",
+      "kind": "number",
+      "path": ["metrics", "show_cnt"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "曝光量"
+    },
+    {
+      "id": "metrics.play_over_rate",
+      "label": "完播率",
+      "kind": "rate",
+      "path": ["metrics", "play_over_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "完播率"
+    },
+    {
+      "id": "metrics.play_duration_avg",
+      "label": "平均播放时长",
+      "kind": "number",
+      "path": ["metrics", "play_duration_avg"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "平均播放时长"
+    },
+    {
+      "id": "metrics.play_3s_rate",
+      "label": "3S完播率",
+      "aliases": ["3S 完播率"],
+      "kind": "rate",
+      "path": ["metrics", "play_3s_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "3S完播率"
+    },
+    {
+      "id": "metrics.play_5s_rate",
+      "label": "5S完播率",
+      "kind": "rate",
+      "path": ["metrics", "play_5s_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "5S完播率"
+    },
+    {
+      "id": "metrics.ctr",
+      "label": "CTR（点击率）",
+      "kind": "rate",
+      "path": ["metrics", "ctr"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "CTR（点击率）"
+    },
+    {
+      "id": "metrics.interact_rate",
+      "label": "互动率",
+      "kind": "rate",
+      "path": ["metrics", "interact_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "互动率"
+    },
+    {
+      "id": "metrics.cvr",
+      "label": "CVR（点击转化率）",
+      "kind": "rate",
+      "path": ["metrics", "cvr"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "CVR（点击转化率）"
+    },
+    {
+      "id": "metrics.pvr",
+      "label": "PVR（曝光转化率）",
+      "kind": "rate",
+      "path": ["metrics", "pvr"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "PVR（曝光转化率）"
+    },
+    {
+      "id": "metrics.like_rate",
+      "label": "点赞率",
+      "kind": "rate",
+      "path": ["metrics", "like_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "运行返回 like_rate"
+    },
+    {
+      "id": "metrics.comment_rate",
+      "label": "评论率",
+      "kind": "rate",
+      "path": ["metrics", "comment_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "运行返回 comment_rate"
+    },
+    {
+      "id": "metrics.share_rate",
+      "label": "转发率",
+      "kind": "rate",
+      "path": ["metrics", "share_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "运行返回 share_rate"
+    },
+    {
+      "id": "metrics.product_wish_button_buy_cart_rate",
+      "label": "商品收藏加购率",
+      "kind": "rate",
+      "path": ["metrics", "product_wish_button_buy_cart_rate"],
+      "filterOperators": ["eq", "gt", "gte", "lt", "lte"],
+      "sortable": true,
+      "labelEvidence": "运行返回 product_wish_button_buy_cart_rate"
+    }
+  ]
+}

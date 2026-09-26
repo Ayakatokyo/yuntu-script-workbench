@@ -1,0 +1,43 @@
+{
+  "results": [
+    {
+      "section": "material_ranking",
+      "findings": [
+        {
+          "claim": "TOP4 榜单记录可用于比较曝光与点击指标分布。",
+          "type": "fact",
+          "confidence": "high",
+          "fact_refs": ["facts/material-ranking.json#/records/0"]
+        }
+      ],
+      "gaps": [],
+      "next_questions": []
+    },
+    {
+      "section": "audience",
+      "findings": [
+        {
+          "claim": "TOP4 人群事实记录包含可用于分布比较的人群标签。",
+          "type": "fact",
+          "confidence": "high",
+          "fact_refs": ["facts/audience.json#/records/0"]
+        }
+      ],
+      "gaps": [],
+      "next_questions": []
+    },
+    {
+      "section": "highlight_frames",
+      "findings": [
+        {
+          "claim": "高光帧事实记录提供了按秒点核验指标线索的时间信息。",
+          "type": "fact",
+          "confidence": "high",
+          "fact_refs": ["facts/highlight-frames.json#/records/0"]
+        }
+      ],
+      "gaps": [],
+      "next_questions": []
+    }
+  ]
+}

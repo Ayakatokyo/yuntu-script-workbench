@@ -1,0 +1,13 @@
+{
+  "analysis_id": "food-beverage-brand-analysis-2026-08-30",
+  "run_id": "e97b74711dbe4105bb7825038530aece",
+  "sections": ["material_ranking", "audience", "script", "highlight_frames"],
+  "business_question": "按当前运行品牌候选范围比较素材表现",
+  "metric_focus": ["exposure", "click", "interaction", "comment"],
+  "filters": {
+    "rank_range": [1, 1000],
+    "material_ids": [],
+    "brand_filter": ["小仙炖", "燕之屋", "五个女博士", "未知品牌"]
+  },
+  "report_mode": "standard"
+}

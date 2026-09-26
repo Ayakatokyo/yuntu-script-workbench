@@ -1,0 +1,212 @@
+short-description: "采集云图素材、补全缺失脚本并支持自定义分析"
+tags:
+  - 云图
+requires:
+  env:
+    - ENV_BACKEND_HOST
+    - YUCE_AUTHORIZATION
+    - YUCE_SESSION_ID
+    - YCSESSIONID
+market:
+  title: "云图素材脚本工作台"
+  summary: "保留云图榜单与详情采集，对已下载且缺少平台脚本的视频进行语音转写，形成可追溯的脚本报告，并按用户问题分析。"
+  category:
+    key: short_video_content
+    label: 短视频内容
+  badges:
+    - label: 云图
+      tone: blue
+  examples:
+    - title: 行业素材数据采集
+      prompt: "采集食品饮料行业近7天的云图榜单、品牌、人群和 TOP10 素材详情"
+    - title: 品牌素材数据对比
+      prompt: "采集并对比指定品牌的云图素材表现与内容事实，为后续自定义分析提供数据"
+    - title: 高光帧数据提取
+      prompt: "提取云图素材中的点击与互动高光时刻，为后续自定义内容分析提供证据"
+pre_input: |
+  请采集云图素材和脚本数据；缺少平台脚本且已有视频时，使用已配置的本地 ASR 模型提取口播。
+  云图授权账号：__field:rpa_shop__（必填）
+  行业是 __field:industry__（必填，云图行业筛选）
+  分析周期是 __field:date_range__
+  截取方式是 __field:ranking_metric__
+  品牌范围是 __field:brand_scope__；指定品牌是 __field:brands__（品牌数量范围3-10个）
+  年龄筛选：__field:ages__；性别筛选：__field:genders__；八大人群筛选：__field:crowd_groups__（可选）
+  素材筛选与排序：__field:material_list__ （可选，例如按“曝光量”>=1000000且“视频标题”包含“燕窝”，再按“互动率”降序）
+  详情素材数 __field:detail_top_n__（包含秒级拆解和内容公式数据，默认10）
+  是否同时生成高光帧图片：__field:highlight_mode__（选择否时无需填写高光帧规则）
+  高光帧规则：__field:highlight_rules__（选择是时填写；可用指标：点赞指数、流失指数、点击指数、互动指数、评论指数；规则案例：不保留封面，提取点赞指数局部峰值3帧、互动指数最高值2帧，不提取其他指标）
+skill_form:
+  - key: rpa_shop
+    type: rpa_shop
+    label: 云图授权账号
+    description: 从云图 RPA 已授权账号中选择；榜单与素材详情两个步骤均使用此账号，不再分别填写
+    application_id: RPA_JULIANG_YT_ACCOUNT_PASSWORD
+    value_format: both
+    multiple: false
+    required: true
+
+  - key: industry
+    type: input
+    label: 行业
+    description: 输入云图行业名称，例如食品饮料
+    placeholder: "例如：食品饮料"
+    required: true
+
+  - key: date_range
+    type: daterange
+    label: 分析周期
+    description: 结束日期不得晚于采集当天前 4 天，分析周期最多 45 天，起止日期均为 YYYY-MM-DD
+    placeholder: "开始日期,结束日期"
+    format: YYYY-MM-DD
+    value_format: YYYY-MM-DD
+    max_policy: t_plus_4
+    required: true
+
+  - key: ranking_metric
+    type: select
+    label: 榜单截取方式
+    description: 选择远端榜单指标，候选池固定为 TOP1000
+    required: true
+    default: EXPOSURE_TOP1000
+    options:
+      - label: 曝光量 TOP1000
+        value: EXPOSURE_TOP1000
+      - label: CTR TOP1000
+        value: CTR_TOP1000
+      - label: 互动率 TOP1000
+        value: INTERACTION_RATE_TOP1000
+      - label: 完播率 TOP1000
+        value: COMPLETION_RATE_TOP1000
+
+  - key: brand_scope
+    type: select
+    label: 全行业/指定品牌
+    description: 全行业或按指定品牌筛选
+    required: true
+    default: ALL_INDUSTRY
+    options:
+      - label: 全行业
+        value: ALL_INDUSTRY
+      - label: 指定品牌
+        value: SPECIFIED_BRANDS
+
+  - key: brands
+    type: textarea
+    label: 品牌名称
+    description: 仅在指定品牌时填写 3 至 10 个品牌，用英文逗号分隔
+    placeholder: "小仙炖,燕之屋,五个女博士"
+    required: true
+    rows: 2
+    max_length: 200
+    visible_when:
+      field: brand_scope
+      equals: SPECIFIED_BRANDS
+    depends_on:
+      brand_scope: SPECIFIED_BRANDS
+
+  - key: ages
+    type: checkbox
+    label: 年龄筛选
+    description: 可选；多选年龄段，留空不过滤
+    options:
+      - label: 18-19 岁
+        value: AGE_18_19
+      - label: 20-23 岁
+        value: AGE_20_23
+      - label: 24-30 岁
+        value: AGE_24_30
+      - label: 31-35 岁
+        value: AGE_31_35
+      - label: 36-40 岁
+        value: AGE_36_40
+      - label: 41-45 岁
+        value: AGE_41_45
+      - label: 46-50 岁
+        value: AGE_46_50
+      - label: 51-55 岁
+        value: AGE_51_55
+      - label: 56-59 岁
+        value: AGE_56_59
+      - label: 60 岁以上
+        value: AGE_60_PLUS
+    required: false
+
+  - key: genders
+    type: checkbox
+    label: 性别筛选
+    description: 可选；多选性别，留空不过滤
+    options:
+      - label: 男性
+        value: MALE
+      - label: 女性
+        value: FEMALE
+    required: false
+
+  - key: crowd_groups
+    type: checkbox
+    label: 八大人群筛选
+    description: 可选；多选八大人群，留空不过滤
+    options:
+      - label: 小镇青年
+        value: TOWN_YOUTH
+      - label: Gen Z
+        value: GENZ
+      - label: 中老年
+        value: SENIOR_MIDDLE
+      - label: 精致妈妈
+        value: REFINED_MOM
+      - label: 新白领
+        value: NEW_WHITE_COLLAR
+      - label: 都市银发
+        value: URBAN_SILVER
+      - label: 小镇中老年
+        value: TOWN_MIDDLE_ELDER
+      - label: 都市蓝领
+        value: URBAN_BLUE_COLLAR
+    required: false
+
+  - key: material_list
+    type: textarea
+    label: 筛选与排序条件
+    description: 可选；用自然语言描述筛选条件和排序方向，技能会在完整 TOP1000 落盘后转换并本地执行，不改变远端榜单参数
+    placeholder: '例如：先落盘完整TOP1000后按“曝光量”>=1000000且“视频标题”包含“燕窝”，再按“互动率”降序'
+    required: false
+    rows: 3
+    max_length: 4000
+
+  - key: detail_top_n
+    type: number
+    label: 详情素材数
+    description: 默认 10；详情请求包含秒级拆解和内容公式字段；如同时生成高光帧图片，再按下方规则提取高光帧图片
+    required: true
+    default: 10
+    min: 1
+    max: 1000
+    step: 1
+    precision: 0
+    addon_after: 条
+
+  - key: highlight_mode
+    type: select
+    label: 是否生成高光帧
+    description: 选择否时不生成也不校验高光帧规则；选择是时填写下方自然语言规则
+    required: true
+    default: "off"
+    options:
+      - label: 否
+        value: "off"
+      - label: 是
+        value: "on"
+  - key: highlight_rules
+    type: textarea
+    label: 高光帧规则
+    description: 直接描述是否保留封面、使用的指标、提取方式和每个指标的帧数
+    placeholder: "例如：不保留封面，提取点赞指数局部峰值3帧、互动指数最高值2帧，不提取其他指标"
+    required: true
+    rows: 4
+    max_length: 4000
+    visible_when:
+      field: highlight_mode
+      equals: "on"
+    depends_on:
+      highlight_mode: "on"

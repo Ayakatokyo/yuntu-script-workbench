@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "source": "juliang_yuntu_industry_content_rankings",
+  "industry": "食品饮料",
+  "period": {"type": "LAST_7_DAYS"},
+  "filters": {"brand_scope": {"type": "ALL_INDUSTRY", "brands": []}},
+  "ranking": {"metric": "CTR_TOP1000"},
+  "collection": {"target_top_n": 2, "candidate_top_n": 1000}
+}

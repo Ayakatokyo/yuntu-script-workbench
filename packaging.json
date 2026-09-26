@@ -1,0 +1,210 @@
+{
+  "package": "yuntu-script-workbench",
+  "rootLayout": "package",
+  "files": [
+    {
+      "source": "SKILL.md",
+      "destination": "SKILL.md"
+    },
+    {
+      "source": "metadata.yaml",
+      "destination": "metadata.yaml"
+    },
+    {
+      "source": "README.md",
+      "destination": "README.md"
+    },
+    {
+      "source": "requirements.txt",
+      "destination": "requirements.txt"
+    },
+    {
+      "source": "requirements-asr.txt",
+      "destination": "requirements-asr.txt"
+    },
+    {
+      "source": "agents/openai.yaml",
+      "destination": "agents/openai.yaml"
+    },
+    {
+      "source": "config/yuntu-content-formula-taxonomy-v1.json",
+      "destination": "config/yuntu-content-formula-taxonomy-v1.json"
+    },
+    {
+      "source": "config/yuntu-material-field-registry-v1.json",
+      "destination": "config/yuntu-material-field-registry-v1.json"
+    },
+    {
+      "source": "references/collection-contract.md",
+      "destination": "references/collection-contract.md"
+    },
+    {
+      "source": "references/script-contract.md",
+      "destination": "references/script-contract.md"
+    },
+    {
+      "source": "scripts/__init__.py",
+      "destination": "scripts/__init__.py"
+    },
+    {
+      "source": "scripts/analysis_facts.py",
+      "destination": "scripts/analysis_facts.py"
+    },
+    {
+      "source": "scripts/analysis_input.py",
+      "destination": "scripts/analysis_input.py"
+    },
+    {
+      "source": "scripts/analysis_intent.py",
+      "destination": "scripts/analysis_intent.py"
+    },
+    {
+      "source": "scripts/analysis_prompt.py",
+      "destination": "scripts/analysis_prompt.py"
+    },
+    {
+      "source": "scripts/analysis_report.py",
+      "destination": "scripts/analysis_report.py"
+    },
+    {
+      "source": "scripts/analysis_result.py",
+      "destination": "scripts/analysis_result.py"
+    },
+    {
+      "source": "scripts/analysis_spec.py",
+      "destination": "scripts/analysis_spec.py"
+    },
+    {
+      "source": "scripts/analysis_workflow.py",
+      "destination": "scripts/analysis_workflow.py"
+    },
+    {
+      "source": "scripts/audience_overview.py",
+      "destination": "scripts/audience_overview.py"
+    },
+    {
+      "source": "scripts/brand_classifier.py",
+      "destination": "scripts/brand_classifier.py"
+    },
+    {
+      "source": "scripts/brand_dimension.py",
+      "destination": "scripts/brand_dimension.py"
+    },
+    {
+      "source": "scripts/collector.py",
+      "destination": "scripts/collector.py"
+    },
+    {
+      "source": "scripts/command_io.py",
+      "destination": "scripts/command_io.py"
+    },
+    {
+      "source": "scripts/config_specs.py",
+      "destination": "scripts/config_specs.py"
+    },
+    {
+      "source": "scripts/content_formula_labels.py",
+      "destination": "scripts/content_formula_labels.py"
+    },
+    {
+      "source": "scripts/date_policy.py",
+      "destination": "scripts/date_policy.py"
+    },
+    {
+      "source": "scripts/fact_catalog.py",
+      "destination": "scripts/fact_catalog.py"
+    },
+    {
+      "source": "scripts/fact_packages.py",
+      "destination": "scripts/fact_packages.py"
+    },
+    {
+      "source": "scripts/fact_reference.py",
+      "destination": "scripts/fact_reference.py"
+    },
+    {
+      "source": "scripts/fact_selection.py",
+      "destination": "scripts/fact_selection.py"
+    },
+    {
+      "source": "scripts/highlight_overview.py",
+      "destination": "scripts/highlight_overview.py"
+    },
+    {
+      "source": "scripts/marketing_selling_point_overview.py",
+      "destination": "scripts/marketing_selling_point_overview.py"
+    },
+    {
+      "source": "scripts/material_field_registry.py",
+      "destination": "scripts/material_field_registry.py"
+    },
+    {
+      "source": "scripts/material_list_selection.py",
+      "destination": "scripts/material_list_selection.py"
+    },
+    {
+      "source": "scripts/model_analysis_request.py",
+      "destination": "scripts/model_analysis_request.py"
+    },
+    {
+      "source": "scripts/overview_report.py",
+      "destination": "scripts/overview_report.py"
+    },
+    {
+      "source": "scripts/rpa_dynamic_client.py",
+      "destination": "scripts/rpa_dynamic_client.py"
+    },
+    {
+      "source": "scripts/rpa_dynamic_detail_client.py",
+      "destination": "scripts/rpa_dynamic_detail_client.py"
+    },
+    {
+      "source": "scripts/rpa_io.py",
+      "destination": "scripts/rpa_io.py"
+    },
+    {
+      "source": "scripts/run.py",
+      "destination": "scripts/run.py"
+    },
+    {
+      "source": "scripts/runtime_paths.py",
+      "destination": "scripts/runtime_paths.py"
+    },
+    {
+      "source": "scripts/script_formula_overview.py",
+      "destination": "scripts/script_formula_overview.py"
+    },
+    {
+      "source": "scripts/script_report.py",
+      "destination": "scripts/script_report.py"
+    },
+    {
+      "source": "scripts/script_transcription.py",
+      "destination": "scripts/script_transcription.py"
+    },
+    {
+      "source": "scripts/single_material_overview.py",
+      "destination": "scripts/single_material_overview.py"
+    },
+    {
+      "source": "scripts/workflow_state.py",
+      "destination": "scripts/workflow_state.py"
+    },
+    {
+      "source": "scripts/yuntu_batch.py",
+      "destination": "scripts/yuntu_batch.py"
+    },
+    {
+      "source": "scripts/yuntu_highlights.py",
+      "destination": "scripts/yuntu_highlights.py"
+    },
+    {
+      "source": "scripts/yuntu_normalizer.py",
+      "destination": "scripts/yuntu_normalizer.py"
+    },
+    {
+      "source": "scripts/yuntu_run_state.py",
+      "destination": "scripts/yuntu_run_state.py"
+    }
+  ]
+}

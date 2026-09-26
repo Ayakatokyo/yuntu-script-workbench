@@ -1,0 +1,9 @@
+{
+  "run_id": "e97b74711dbe4105bb7825038530aece",
+  "sections": ["material_ranking", "audience", "highlight_frames"],
+  "brand_filter": ["小仙炖", "燕之屋", "五个女博士"],
+  "material_filter": {"rank_range": [1, 4], "material_ids": []},
+  "metric_focus": ["exposure", "click", "interaction"],
+  "business_question": "比较 TOP4 素材榜单表现、人群差异与高光帧节奏，识别可验证的商业机会",
+  "report_mode": "standard"
+}
