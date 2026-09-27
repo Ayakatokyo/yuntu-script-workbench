@@ -1,17 +1,17 @@
 ---
-name: yuntu-script-workbench
+name: 云图素材脚本工作台
 description: 采集云图行业榜单与素材详情，对已获视频中缺少平台脚本的素材提取音轨并转写，交付可追溯脚本报告，再按用户自定义问题分析。
 metadata:
-  argument_hint: 先选择云图授权账号、行业、周期、榜单口径和详情素材数；阶段一报告完成后等待用户提出分析问题。
+  argument_hint: 先选择云图授权账号、行业、周期、榜单口径和脚本素材数；阶段一报告完成后等待用户提出分析问题。
 ---
 
 # 云图素材脚本工作台
 
-本包以独立运行代码保留云图元技能的榜单与详情 RPA、筛选、视频/可选高光、事实包和两阶段分析流程。详细输入字段与采集门禁见[取数契约](references/collection-contract.md)，脚本来源、报告和第二阶段见[输出与分析契约](references/script-contract.md)。运行入口 `scripts/run.py`，取数原子入口 `scripts/collector.py`；Python 3.11+，常规依赖见 `requirements.txt`，本地 ASR 另需 `requirements-asr.txt` 和预置的 faster-whisper 模型目录。所有运行目录必须在技能安装目录之外。
+本包以独立运行代码保留云图元技能的榜单与详情 RPA、筛选、视频、事实包和两阶段分析流程。详细输入字段与采集门禁见[取数契约](references/collection-contract.md)，脚本来源、报告和第二阶段见[输出与分析契约](references/script-contract.md)。运行入口 `scripts/run.py`，取数原子入口 `scripts/collector.py`；Python 3.11+，常规依赖见 `requirements.txt`，本地 ASR 另需 `requirements-asr.txt` 和预置的 faster-whisper 模型目录。所有运行目录必须在技能安装目录之外。
 
 ## 阶段一：取数、转写、报告、暂停
 
-先按[取数契约](references/collection-contract.md)生成并验证 QuerySpec。`acquire` 依次运行元技能同源的 `collect`（榜单→本地选材→详情→视频→事实包）、仅针对缺少有效平台脚本的已获视频提取音频并转写、重建带来源的事实包、生成 `script-report/index.html` 和收据。高光帧默认关闭，但原取数能力可通过 `--highlight-mode on --highlight-spec` 使用。平台原始 CSV、规范化详情与平台脚本不被 ASR 覆盖。
+先按[取数契约](references/collection-contract.md)将表单的脚本素材数映射为 `QuerySpec.collection.target_top_n`，然后验证 QuerySpec。`acquire` 依次运行元技能同源的 `collect`（榜单→本地选材→详情→视频→事实包）、仅针对缺少有效平台脚本的已获视频提取音频并转写、重建带来源的事实包、生成 `script-report/index.html` 和收据。脚本工作台主流程不生成高光帧。平台原始 CSV、规范化详情与平台脚本不被 ASR 覆盖。
 
 ```bash
 python "$SKILL_ROOT/scripts/run.py" validate --query-spec "$QUERY_SPEC"
@@ -24,7 +24,7 @@ python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR"
 
 `--model-dir` 可由 `YUNTU_ASR_MODEL_DIR` 提供；模型必须已在目标环境本地就绪。缺模型、解码或转写失败会保留原事实并在 `asr/manifest.json` 和报告中显示，组合入口返回非零状态 2；修复环境后只重跑 `process-scripts`。有效平台脚本不触发 ASR；相同视频 SHA 在本次运行内只转写一次。无音轨、无语音、视频缺失、解码失败和转写失败分状态记录。ASR 只代表音轨中的可识别语音，不能补画面字幕或包装文字。
 
-首批最多 3 条详情必须全部确认且至少一份真实、非空业务、身份匹配的 CSV 才继续。全无有效 CSV 为持久 `blocked`，未知结果为 `unconfirmed`；两种状态都暂停后续 RPA，ASR 不能绕过。自定义日期按北京时间 T+4，非法日期必须在外部请求前拒绝。身份、授权、重启恢复及可选高光规则沿用[取数契约](references/collection-contract.md)。取数失败或门禁暂停时不生成成功脚本报告。
+首批最多 3 条详情必须全部确认且至少一份真实、非空业务、身份匹配的 CSV 才继续。全无有效 CSV 为持久 `blocked`，未知结果为 `unconfirmed`；两种状态都暂停后续 RPA，ASR 不能绕过。自定义日期按北京时间 T+4，非法日期必须在外部请求前拒绝。身份、授权及重启恢复规则沿用[取数契约](references/collection-contract.md)。取数失败或门禁暂停时不生成成功脚本报告。
 
 报告展示完整已获榜单与已取得详情的脚本文本、来源和转写状态。脚本事实中的 `platform_script_text` 与 `asr_transcript` 并存；统一读取字段 `script_text` 优先使用可信平台原文，否则使用有效 ASR，并标记 `script_source`。无脚本保持缺口。报告完成后停在等待用户分析输入，不自动生成商业结论。
 

@@ -17,14 +17,14 @@ market:
     - label: 云图
       tone: blue
   examples:
-    - title: 行业素材数据采集
-      prompt: "采集食品饮料行业近7天的云图榜单、品牌、人群和 TOP10 素材详情"
+    - title: 行业脚本素材采集
+      prompt: "采集食品饮料行业近7天的云图榜单，并选取前10条素材获取视频和脚本"
     - title: 品牌素材数据对比
       prompt: "采集并对比指定品牌的云图素材表现与内容事实，为后续自定义分析提供数据"
-    - title: 高光帧数据提取
-      prompt: "提取云图素材中的点击与互动高光时刻，为后续自定义内容分析提供证据"
+    - title: 脚本素材筛选
+      prompt: "先按曝光量和互动率筛选云图榜单，再选取脚本素材形成可追溯报告"
 pre_input: |
-  请采集云图素材和脚本数据；缺少平台脚本且已有视频时，使用已配置的本地 ASR 模型提取口播。
+  请采集云图素材和脚本数据。
   云图授权账号：__field:rpa_shop__（必填）
   行业是 __field:industry__（必填，云图行业筛选）
   分析周期是 __field:date_range__
@@ -32,9 +32,7 @@ pre_input: |
   品牌范围是 __field:brand_scope__；指定品牌是 __field:brands__（品牌数量范围3-10个）
   年龄筛选：__field:ages__；性别筛选：__field:genders__；八大人群筛选：__field:crowd_groups__（可选）
   素材筛选与排序：__field:material_list__ （可选，例如按“曝光量”>=1000000且“视频标题”包含“燕窝”，再按“互动率”降序）
-  详情素材数 __field:detail_top_n__（包含秒级拆解和内容公式数据，默认10）
-  是否同时生成高光帧图片：__field:highlight_mode__（选择否时无需填写高光帧规则）
-  高光帧规则：__field:highlight_rules__（选择是时填写；可用指标：点赞指数、流失指数、点击指数、互动指数、评论指数；规则案例：不保留封面，提取点赞指数局部峰值3帧、互动指数最高值2帧，不提取其他指标）
+  脚本素材数 __field:script_top_n__（从筛选排序后的榜单选取，默认10；实际可用脚本数取决于平台原文和视频转写结果）
 skill_form:
   - key: rpa_shop
     type: rpa_shop
@@ -174,10 +172,10 @@ skill_form:
     rows: 3
     max_length: 4000
 
-  - key: detail_top_n
+  - key: script_top_n
     type: number
-    label: 详情素材数
-    description: 默认 10；详情请求包含秒级拆解和内容公式字段；如同时生成高光帧图片，再按下方规则提取高光帧图片
+    label: 脚本素材数
+    description: 默认 10；从筛选排序后的榜单选取此数量的素材，采集其详情和视频以提取脚本；实际可用脚本数可能更少
     required: true
     default: 10
     min: 1
@@ -185,28 +183,3 @@ skill_form:
     step: 1
     precision: 0
     addon_after: 条
-
-  - key: highlight_mode
-    type: select
-    label: 是否生成高光帧
-    description: 选择否时不生成也不校验高光帧规则；选择是时填写下方自然语言规则
-    required: true
-    default: "off"
-    options:
-      - label: 否
-        value: "off"
-      - label: 是
-        value: "on"
-  - key: highlight_rules
-    type: textarea
-    label: 高光帧规则
-    description: 直接描述是否保留封面、使用的指标、提取方式和每个指标的帧数
-    placeholder: "例如：不保留封面，提取点赞指数局部峰值3帧、互动指数最高值2帧，不提取其他指标"
-    required: true
-    rows: 4
-    max_length: 4000
-    visible_when:
-      field: highlight_mode
-      equals: "on"
-    depends_on:
-      highlight_mode: "on"

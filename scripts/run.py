@@ -28,8 +28,6 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] == "acquire":
         parser.add_argument("--shop-id", required=True)
         parser.add_argument("--query-spec", required=True)
-        parser.add_argument("--highlight-spec")
-        parser.add_argument("--highlight-mode", choices=("on", "off"), default="off")
         parser.add_argument("--output-dir", required=True)
         parser.add_argument("--model-dir", default=os.environ.get("YUNTU_ASR_MODEL_DIR"))
     else:
@@ -40,9 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args[0] == "acquire":
             collect_args = ["collect", "--shop-id", parsed.shop_id, "--query-spec", parsed.query_spec,
-                            "--highlight-mode", parsed.highlight_mode, "--output-dir", parsed.output_dir]
-            if parsed.highlight_spec:
-                collect_args += ["--highlight-spec", parsed.highlight_spec]
+                            "--highlight-mode", "off", "--output-dir", parsed.output_dir]
             status = collector_main(collect_args)
             if status != 0:
                 return status
