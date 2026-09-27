@@ -11,11 +11,11 @@ metadata:
 
 ## 阶段一：取数、转写、报告、暂停
 
-先按[取数契约](references/collection-contract.md)将表单的脚本素材数映射为 `QuerySpec.collection.target_top_n`，然后验证 QuerySpec。`acquire` 依次运行元技能同源的 `collect`（榜单→本地选材→详情→视频→事实包）、仅针对缺少有效平台脚本的已获视频提取音频并转写、重建带来源的事实包、生成 `script-report/index.html` 和收据。脚本工作台主流程不生成高光帧。平台原始 CSV、规范化详情与平台脚本不被 ASR 覆盖。
+先按[取数契约](references/collection-contract.md)将表单的脚本素材数映射为 `QuerySpec.collection.target_top_n`，然后验证 QuerySpec。`acquire` 依次运行元技能同源的 `collect`（榜单→本地选材→详情→视频→事实包）、仅针对缺少有效平台脚本的已获视频提取音频并转写、重建带来源的事实包、生成 `script-report/index.html` 和收据。默认在调用方当前目录的 `云图素材脚本数据/<run-id>/` 保存每次运行；返回的 `runDir` 用于续跑和第二阶段。脚本工作台主流程不生成高光帧。平台原始 CSV、规范化详情与平台脚本不被 ASR 覆盖。
 
 ```bash
 python "$SKILL_ROOT/scripts/run.py" validate --query-spec "$QUERY_SPEC"
-python "$SKILL_ROOT/scripts/run.py" acquire --shop-id "$AUTHORIZED_SHOP_ID" --query-spec "$QUERY_SPEC" --output-dir "$RUN_DIR" --model-dir "$LOCAL_ASR_MODEL_DIR"
+python "$SKILL_ROOT/scripts/run.py" acquire --shop-id "$AUTHORIZED_SHOP_ID" --query-spec "$QUERY_SPEC" --model-dir "$LOCAL_ASR_MODEL_DIR"
 # 已获可信云图运行目录可从本地加工，不再提交 RPA
 python "$SKILL_ROOT/scripts/run.py" process-scripts --run-dir "$RUN_DIR" --model-dir "$LOCAL_ASR_MODEL_DIR"
 python "$SKILL_ROOT/scripts/run.py" render-script-report --run-dir "$RUN_DIR"
@@ -23,6 +23,8 @@ python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR"
 ```
 
 `--model-dir` 可由 `YUNTU_ASR_MODEL_DIR` 提供；模型必须已在目标环境本地就绪。缺模型、解码或转写失败会保留原事实并在 `asr/manifest.json` 和报告中显示，组合入口返回非零状态 2；修复环境后只重跑 `process-scripts`。有效平台脚本不触发 ASR；相同视频 SHA 在本次运行内只转写一次。无音轨、无语音、视频缺失、解码失败和转写失败分状态记录。ASR 只代表音轨中的可识别语音，不能补画面字幕或包装文字。
+
+可用 `--output-root` 指定其他数据根目录；需要对已有运行目录续跑时使用 `--output-dir` 指定原目录。两者互斥，且运行数据目录不能位于技能安装目录内。报告入口为 `RUN_DIR/script-report/index.html`，原始采集、视频、转写与报告均留在同一 `RUN_DIR`。
 
 首批最多 3 条详情必须全部确认且至少一份真实、非空业务、身份匹配的 CSV 才继续。全无有效 CSV 为持久 `blocked`，未知结果为 `unconfirmed`；两种状态都暂停后续 RPA，ASR 不能绕过。自定义日期按北京时间 T+4，非法日期必须在外部请求前拒绝。身份、授权及重启恢复规则沿用[取数契约](references/collection-contract.md)。取数失败或门禁暂停时不生成成功脚本报告。
 

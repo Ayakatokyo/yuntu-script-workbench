@@ -4,16 +4,32 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import sys
+import uuid
 
 from collector import main as collector_main
 from fact_packages import FactPackageError, build_fact_packages
 from runtime_paths import RuntimePathError, external_runtime_path
 from script_report import ScriptReportError, write_script_report
 from script_transcription import FasterWhisperProvider, TranscriptionError, transcribe_run
+
+
+DEFAULT_OUTPUT_FOLDER = "云图素材脚本数据"
+
+
+def _acquire_run_dir(output_root: str | None, output_dir: str | None) -> Path:
+    if output_dir:
+        return external_runtime_path(output_dir, label="run directory")
+    root = external_runtime_path(output_root or Path.cwd() / DEFAULT_OUTPUT_FOLDER, label="output root")
+    run_id = f"run-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{uuid.uuid4().hex[:8]}"
+    run_dir = root / run_id
+    if run_dir.exists():
+        raise RuntimePathError(f"run directory already exists: {run_dir}")
+    return run_dir
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -28,7 +44,9 @@ def main(argv: list[str] | None = None) -> int:
     if args[0] == "acquire":
         parser.add_argument("--shop-id", required=True)
         parser.add_argument("--query-spec", required=True)
-        parser.add_argument("--output-dir", required=True)
+        destination = parser.add_mutually_exclusive_group()
+        destination.add_argument("--output-root", help=f"output root; defaults to cwd/{DEFAULT_OUTPUT_FOLDER}")
+        destination.add_argument("--output-dir", help="exact run directory for an existing workflow")
         parser.add_argument("--model-dir", default=os.environ.get("YUNTU_ASR_MODEL_DIR"))
     else:
         parser.add_argument("--run-dir", required=True)
@@ -37,12 +55,13 @@ def main(argv: list[str] | None = None) -> int:
     parsed = parser.parse_args(args[1:])
     try:
         if args[0] == "acquire":
+            run_dir = _acquire_run_dir(parsed.output_root, parsed.output_dir)
+            print(json.dumps({"runDir": str(run_dir), "status": "starting"}, ensure_ascii=False))
             collect_args = ["collect", "--shop-id", parsed.shop_id, "--query-spec", parsed.query_spec,
-                            "--highlight-mode", "off", "--output-dir", parsed.output_dir]
+                            "--highlight-mode", "off", "--output-dir", str(run_dir)]
             status = collector_main(collect_args)
             if status != 0:
                 return status
-            run_dir = external_runtime_path(parsed.output_dir, label="run directory")
             model_dir = Path(parsed.model_dir) if parsed.model_dir else None
         else:
             run_dir = external_runtime_path(parsed.run_dir, label="run directory")
