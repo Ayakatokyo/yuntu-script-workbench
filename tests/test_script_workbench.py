@@ -5,11 +5,14 @@ import subprocess
 import tempfile
 import unittest
 from unittest import mock
+from types import SimpleNamespace
+import wave
 
+from scripts.asr_worker import transcribe_chunks
 from scripts.fact_packages import build_fact_packages
 from scripts.fact_catalog import build_fact_catalog
 from scripts.script_report import write_script_report
-from scripts.script_transcription import TranscriptionError, _extract_audio, _ffmpeg_binary, transcribe_run
+from scripts.script_transcription import FasterWhisperProvider, TranscriptionError, _extract_audio, _ffmpeg_binary, transcribe_run
 
 
 def write_json(path, value):
@@ -118,12 +121,78 @@ class ScriptWorkbenchTests(unittest.TestCase):
         self.assertEqual(manifest["counts"]["available"], 2)
         self.assertEqual(provider.calls, 1)
 
+    def test_changed_decode_hints_invalidate_success_cache(self):
+        def fake_audio(_video, wav, _ffmpeg):
+            wav.write_bytes(b"RIFF" + b"a" * 100)
+            return "available"
+
+        first, second = FakeProvider(), FakeProvider()
+        first.cache_key, second.cache_key = "terms-a", "terms-b"
+        with mock.patch("scripts.script_transcription._extract_audio", side_effect=fake_audio):
+            transcribe_run(self.root, provider=first)
+            transcribe_run(self.root, provider=second)
+        self.assertEqual(first.calls, 1)
+        self.assertEqual(second.calls, 1)
+
     def test_real_ffmpeg_distinguishes_no_audio_track(self):
         video = self.root / "silent.mp4"
         command = [_ffmpeg_binary(), "-hide_banner", "-loglevel", "error", "-f", "lavfi",
                    "-i", "color=c=blue:s=64x64:d=1", "-an", "-y", str(video)]
         subprocess.run(command, check=True, capture_output=True)
         self.assertEqual(_extract_audio(video, self.root / "silent.wav"), "no_audio_track")
+
+    def test_chunked_asr_offsets_timestamps_and_bounds_audio(self):
+        wav = self.root / "speech.wav"
+        with wave.open(str(wav), "wb") as output:
+            output.setnchannels(1)
+            output.setsampwidth(2)
+            output.setframerate(16000)
+            output.writeframes(b"\0\0" * 16000 * 21)
+
+        class Model:
+            def __init__(self):
+                self.calls = []
+
+            def transcribe(self, path, **kwargs):
+                with wave.open(path, "rb") as chunk:
+                    frames = chunk.getnframes()
+                self.calls.append((frames, kwargs))
+                return iter([SimpleNamespace(start=0, end=1, text="口播")]), SimpleNamespace(language="zh")
+
+        model = Model()
+        result = transcribe_chunks(wav, model, profile="memory_safe", hotwords="燕之屋")
+        self.assertEqual([part["start"] for part in result["segments"]], [0, 20])
+        self.assertEqual([call[0] for call in model.calls], [20 * 16000, 16000])
+        self.assertEqual(model.calls[0][1]["beam_size"], 1)
+        self.assertEqual(model.calls[0][1]["hotwords"], "燕之屋")
+        self.assertEqual(result["decodeProfile"]["name"], "memory_safe")
+
+    def test_worker_memory_kill_retries_safe_profile(self):
+        model_dir = self.root / "model"
+        model_dir.mkdir()
+        (model_dir / "model.bin").write_bytes(b"model")
+        (model_dir / "config.json").write_text("{}")
+        provider = FasterWhisperProvider(model_dir, hotwords="燕之屋")
+        profiles = []
+
+        def run_worker(_command, *, input, **_kwargs):
+            request = json.loads(input)
+            profiles.append(request["profile"])
+            if request["profile"] == "quality":
+                return SimpleNamespace(returncode=-9, stderr="")
+            output = Path(_command[-1])
+            write_json(output, {"durationSec": 1, "language": "zh", "segments": [],
+                                "decodeProfile": {"name": "memory_safe"}})
+            return SimpleNamespace(returncode=0, stderr="")
+
+        with mock.patch.object(provider, "preflight"), mock.patch("scripts.script_transcription.subprocess.run", side_effect=run_worker):
+            result = provider.transcribe(self.root / "audio.wav")
+        self.assertEqual(profiles, ["quality", "memory_safe"])
+        self.assertEqual(result["decodeProfile"]["name"], "memory_safe")
+
+    def test_missing_model_preflight_rejects_before_acquisition(self):
+        with self.assertRaisesRegex(TranscriptionError, "model_directory_missing_or_incomplete"):
+            FasterWhisperProvider(self.root / "missing").preflight()
 
 
 if __name__ == "__main__":

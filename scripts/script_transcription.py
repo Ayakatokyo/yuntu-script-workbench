@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Any
 
@@ -59,7 +61,8 @@ def _ffmpeg_binary() -> str:
 
 def _extract_audio(video: Path, destination: Path, ffmpeg_bin: str | None = None) -> str:
     command = [ffmpeg_bin or _ffmpeg_binary(), "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
-               "-i", str(video), "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000", "-f", "wav", str(destination)]
+               "-i", str(video), "-map", "0:a:0", "-vn", "-ac", "1", "-ar", "16000",
+               "-c:a", "pcm_s16le", "-f", "wav", str(destination)]
     try:
         result = subprocess.run(command, capture_output=True, text=True, timeout=180, check=False)
     except subprocess.TimeoutExpired:
@@ -81,10 +84,26 @@ class FasterWhisperProvider:
 
     provider_name = "faster-whisper"
 
-    def __init__(self, model_dir: Path | None):
+    decode_policy_version = "chunked-v1"
+
+    def __init__(self, model_dir: Path | None, *, hotwords: str = ""):
         self.model_dir = Path(model_dir).resolve() if model_dir is not None else None
         self._model_version = None
-        self.model = None
+        self.hotwords = hotwords.strip()
+        if len(self.hotwords) > 256:
+            raise TranscriptionError("asr_hotwords_too_long")
+
+    def preflight(self) -> None:
+        if self.model_dir is None or not (self.model_dir / "model.bin").is_file() or not (self.model_dir / "config.json").is_file():
+            raise TranscriptionError("model_directory_missing_or_incomplete")
+        if importlib.util.find_spec("faster_whisper") is None:
+            raise TranscriptionError("faster_whisper_unavailable")
+        _ffmpeg_binary()
+
+    @property
+    def cache_key(self) -> str:
+        material = f"{self.model_version}|{self.decode_policy_version}|{self.hotwords}".encode("utf-8")
+        return hashlib.sha256(material).hexdigest()
 
     @property
     def model_version(self) -> str:
@@ -102,23 +121,24 @@ class FasterWhisperProvider:
         return self._model_version
 
     def transcribe(self, wav_path: Path) -> dict[str, Any]:
-        if self.model_dir is None or not self.model_dir.is_dir():
-            raise TranscriptionError("model_directory_missing")
-        try:
-            from faster_whisper import WhisperModel
-        except ImportError as exc:
-            raise TranscriptionError("faster_whisper_unavailable") from exc
-        if self.model is None:
-            self.model = WhisperModel(str(self.model_dir), device="cpu", compute_type="int8")
-        segments, info = self.model.transcribe(str(wav_path), language="zh", beam_size=5)
-        return {
-            "durationSec": float(info.duration),
-            "language": info.language,
-            "segments": [
-                {"start": float(item.start), "end": float(item.end), "text": str(item.text).strip()}
-                for item in segments
-            ],
-        }
+        self.preflight()
+        worker = Path(__file__).with_name("asr_worker.py")
+        with tempfile.TemporaryDirectory(prefix="yuntu-asr-worker-") as temporary:
+            output = Path(temporary) / "result.json"
+            for profile in ("quality", "memory_safe"):
+                try:
+                    completed = subprocess.run(
+                        [sys.executable, str(worker), str(wav_path), str(self.model_dir), str(output)],
+                        input=json.dumps({"profile": profile, "hotwords": self.hotwords}),
+                        capture_output=True, text=True, check=False, timeout=900,
+                    )
+                except subprocess.TimeoutExpired as exc:
+                    raise TranscriptionError("asr_worker_timeout") from exc
+                if completed.returncode == 0 and output.is_file():
+                    return _read_json(output)
+                if completed.returncode not in {-9, 137}:
+                    raise TranscriptionError(f"asr_worker_failed:{completed.returncode}:{completed.stderr[-500:]}")
+            raise TranscriptionError("asr_worker_memory_limit_exceeded")
 
 
 def _normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
@@ -134,8 +154,11 @@ def _normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
             raise TranscriptionError("invalid_asr_segment")
         segments.append({"start": start, "end": end, "text": content})
         previous_end = end
-    return {"durationSec": duration, "language": str(raw.get("language") or "unknown"),
-            "segments": segments, "text": "".join(segment["text"] for segment in segments)}
+    result = {"durationSec": duration, "language": str(raw.get("language") or "unknown"),
+              "segments": segments, "text": "".join(segment["text"] for segment in segments)}
+    if isinstance(raw.get("decodeProfile"), dict):
+        result["decodeProfile"] = raw["decodeProfile"]
+    return result
 
 
 def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = None) -> dict[str, Any]:
@@ -183,8 +206,8 @@ def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = Non
                 if result.get("status") in {"available", "no_speech"} and (
                     result.get("provider") != getattr(provider, "provider_name", provider.__class__.__name__)
                     or result.get("modelVersion") != getattr(provider, "model_version", "unknown")
+                    or result.get("cacheKey") != getattr(provider, "cache_key", None)
                 ):
-                    cached.unlink()
                     result = None
             else:
                 result = None
@@ -200,7 +223,8 @@ def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = Non
                             result = {"status": "available" if normalized["text"] else "no_speech",
                                       "videoSha256": video_hash, "audioSha256": _sha256(wav),
                                       "provider": getattr(provider, "provider_name", provider.__class__.__name__),
-                                      "modelVersion": getattr(provider, "model_version", "unknown"), **normalized}
+                                      "modelVersion": getattr(provider, "model_version", "unknown"),
+                                      "cacheKey": getattr(provider, "cache_key", None), **normalized}
                         except Exception as exc:
                             result = {"status": "transcription_failed", "videoSha256": video_hash,
                                       "error": f"{type(exc).__name__}: {exc}"}

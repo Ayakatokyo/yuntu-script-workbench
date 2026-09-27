@@ -48,27 +48,33 @@ def main(argv: list[str] | None = None) -> int:
         destination.add_argument("--output-root", help=f"output root; defaults to cwd/{DEFAULT_OUTPUT_FOLDER}")
         destination.add_argument("--output-dir", help="exact run directory for an existing workflow")
         parser.add_argument("--model-dir", default=os.environ.get("YUNTU_ASR_MODEL_DIR"))
+        parser.add_argument("--asr-hotwords", default="", help="optional brand/product terms to guide ASR (max 256 characters)")
     else:
         parser.add_argument("--run-dir", required=True)
         if args[0] == "process-scripts":
             parser.add_argument("--model-dir", default=os.environ.get("YUNTU_ASR_MODEL_DIR"))
+            parser.add_argument("--asr-hotwords", default="", help="optional brand/product terms to guide ASR (max 256 characters)")
     parsed = parser.parse_args(args[1:])
     try:
         if args[0] == "acquire":
             run_dir = _acquire_run_dir(parsed.output_root, parsed.output_dir)
+            model_dir = Path(parsed.model_dir) if parsed.model_dir else None
+            provider = FasterWhisperProvider(model_dir, hotwords=parsed.asr_hotwords)
+            provider.preflight()
             print(json.dumps({"runDir": str(run_dir), "status": "starting"}, ensure_ascii=False))
             collect_args = ["collect", "--shop-id", parsed.shop_id, "--query-spec", parsed.query_spec,
                             "--highlight-mode", "off", "--output-dir", str(run_dir)]
             status = collector_main(collect_args)
             if status != 0:
                 return status
-            model_dir = Path(parsed.model_dir) if parsed.model_dir else None
         else:
             run_dir = external_runtime_path(parsed.run_dir, label="run directory")
             model_dir = Path(parsed.model_dir) if args[0] == "process-scripts" and parsed.model_dir else None
+            provider = FasterWhisperProvider(model_dir, hotwords=parsed.asr_hotwords) if args[0] == "process-scripts" else None
         processing_counts = {}
         if args[0] != "render-script-report":
-            manifest = transcribe_run(run_dir, provider=FasterWhisperProvider(model_dir))
+            provider.preflight()
+            manifest = transcribe_run(run_dir, provider=provider)
             processing_counts = manifest["counts"]
             print(json.dumps({"transcription": processing_counts}, ensure_ascii=False))
             build_fact_packages(run_dir)
