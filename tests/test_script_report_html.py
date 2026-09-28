@@ -52,3 +52,17 @@ def test_formula_and_quote_require_readable_labels_and_exact_script_match():
     assert "开场" in html and "提问" in html
     assert html.count('data-quote>') == 1
     assert "并未出现在正文" not in html
+
+
+def test_brand_scope_is_disclosed_without_treating_title_match_as_brand_truth():
+    report = {
+        "counts": {"ranking": 1, "detail": 1, "platform": 0, "agent_audio": 0, "unavailable": 1},
+        "selection": {"industry": "食品饮料", "brandScope": "SPECIFIED_BRANDS",
+                      "brands": ["小仙炖", "燕之屋", "五个女博士"], "titleBrandUnmatchedCount": 1},
+        "rows": [_row("1", title="燕窝礼盒")],
+    }
+    html = render_script_report_html(report)
+    assert "平台品牌范围" in html and "指定品牌" in html
+    assert "小仙炖、燕之屋、五个女博士" in html
+    assert "1 条榜单标题未出现指定品牌名" in html
+    assert "不等于品牌归属判定" in html

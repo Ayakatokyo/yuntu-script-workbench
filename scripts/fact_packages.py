@@ -243,7 +243,7 @@ def _script_payload(root: Path, details: dict[str, dict], classifications: dict[
             raise FactPackageError(f"transcript receipt hash mismatch: {material_id}")
         if transcript is not None and str(transcript.get("materialId")) != material_id:
             raise FactPackageError(f"transcript material identity mismatch: {material_id}")
-        if transcript is not None and transcript.get("status") == "available":
+        if transcript is not None and transcript.get("status") in {"available", "unavailable"}:
             video_path = root / "videos" / material_id / "source-video.mp4"
             raw_path = root / "transcripts" / "raw" / f"{transcript.get('videoSha256')}.txt"
             audio_path = root / "audio" / "by-video" / f"{transcript.get('videoSha256')}.wav"

@@ -126,7 +126,7 @@ def prepare_audio(run_dir: Path, *, ffmpeg_bin: str | None = None) -> dict[str, 
                 item["status"] = attempted_audio[video_sha]
             elif not audio.is_file() or video_sha not in previous_audio:
                 audio.parent.mkdir(parents=True, exist_ok=True)
-                with tempfile.TemporaryDirectory(prefix="yuntu-audio-") as temporary:
+                with tempfile.TemporaryDirectory(prefix=".yuntu-audio-", dir=audio.parent) as temporary:
                     extracted = Path(temporary) / "audio.wav"
                     item["status"] = _extract_audio(video, extracted, ffmpeg_bin)
                     if item["status"] == "available":
@@ -142,15 +142,19 @@ def prepare_audio(run_dir: Path, *, ffmpeg_bin: str | None = None) -> dict[str, 
                 transcript_path = root / "transcripts" / "by-video" / f"{video_sha}.json"
                 if transcript_path.is_file():
                     transcript = _read_json(transcript_path)
+                    status = transcript.get("status")
                     if (transcript.get("videoSha256") != video_sha
                             or transcript.get("audioSha256") != item["audioSha256"]
-                            or transcript.get("status") != "available"
-                            or not str(transcript.get("text") or "").strip()):
+                            or status not in {"available", "unavailable"}
+                            or (status == "available" and not str(transcript.get("text") or "").strip())
+                            or (status == "unavailable" and (str(transcript.get("text") or "").strip()
+                                                              or transcript.get("reason") != "recognition_empty_after_review"
+                                                              or not 8 <= len(str(transcript.get("reviewNote") or "")) <= 500))):
                         raise TranscriptionError("transcript_source_mismatch")
                     raw = root / "transcripts" / "raw" / f"{video_sha}.txt"
                     if not raw.is_file() or _sha256(raw) != transcript.get("rawResponseSha256"):
                         raise TranscriptionError("transcript_response_hash_mismatch")
-                    item["status"] = "agent_transcribed"
+                    item["status"] = "agent_transcribed" if status == "available" else "agent_unavailable"
                     item["transcriptPath"] = transcript_path.relative_to(root).as_posix()
                     item["transcriptSha256"] = _sha256(transcript_path)
                 else:
@@ -167,7 +171,7 @@ def import_transcript(run_dir: Path, *, video_sha: str, text_file: Path, respons
     root = Path(run_dir).resolve()
     manifest = prepare_audio(root)
     matching = [item for item in manifest["materials"] if item.get("videoSha256") == video_sha]
-    if not matching or matching[0]["status"] not in {"pending_agent", "agent_transcribed"}:
+    if not matching or matching[0]["status"] not in {"pending_agent", "agent_transcribed", "agent_unavailable"}:
         raise TranscriptionError("video_not_pending_agent_transcription")
     source = Path(text_file).resolve()
     if not source.is_file() or source.stat().st_size > 1024 * 1024:
@@ -198,6 +202,41 @@ def import_transcript(run_dir: Path, *, video_sha: str, text_file: Path, respons
     return prepare_audio(root)
 
 
+def mark_unavailable(run_dir: Path, *, video_sha: str, response_file: Path, review_note: str) -> dict[str, Any]:
+    """Record a reviewed empty recognition result without claiming the audio is silent."""
+    root = Path(run_dir).resolve()
+    manifest = prepare_audio(root)
+    matching = [item for item in manifest["materials"] if item.get("videoSha256") == video_sha]
+    if not matching or matching[0]["status"] != "pending_agent":
+        raise TranscriptionError("video_not_pending_agent_transcription")
+    review_note = review_note.strip()
+    if not 8 <= len(review_note) <= 500:
+        raise TranscriptionError("review_note_length_out_of_range")
+    response = Path(response_file).resolve()
+    if not response.is_file() or response.stat().st_size > 1024 * 1024:
+        raise TranscriptionError("agent_response_file_missing_or_too_large")
+    raw_bytes = response.read_bytes()
+    try:
+        raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise TranscriptionError("agent_response_must_be_utf8") from exc
+    raw_path = root / "transcripts" / "raw" / f"{video_sha}.txt"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=raw_path.parent, delete=False) as output:
+        temporary = Path(output.name)
+        output.write(raw_bytes)
+    os.replace(temporary, raw_path)
+    outcome = {"schemaVersion": 1, "status": "unavailable", "reason": "recognition_empty_after_review",
+               "reviewNote": review_note,
+               "provider": "agent_imported_audio_text", "reportedTool": "batch_understand_files",
+               "toolCallVerifiedByScript": False, "modelName": None, "videoSha256": video_sha,
+               "audioSha256": matching[0]["audioSha256"],
+               "rawResponsePath": raw_path.relative_to(root).as_posix(),
+               "rawResponseSha256": _sha256(raw_path), "text": "", "timestampStatus": "unavailable"}
+    _write_json(root / "transcripts" / "by-video" / f"{video_sha}.json", outcome)
+    return prepare_audio(root)
+
+
 def finalize_transcripts(run_dir: Path) -> dict[str, Any]:
     root = Path(run_dir).resolve()
     manifest = prepare_audio(root)
@@ -214,6 +253,13 @@ def finalize_transcripts(run_dir: Path) -> dict[str, Any]:
                             "audioSha256": transcript["audioSha256"], "timestampStatus": "unavailable",
                             "rawResponsePath": transcript["rawResponsePath"],
                             "rawResponseSha256": transcript["rawResponseSha256"]})
+        elif item["status"] == "agent_unavailable":
+            outcome = _read_json(root / item["transcriptPath"])
+            receipt.update({"status": "unavailable", "reason": outcome["reason"],
+                            "reviewNote": outcome["reviewNote"],
+                            "provider": outcome["provider"], "audioSha256": outcome["audioSha256"],
+                            "timestampStatus": "unavailable", "rawResponsePath": outcome["rawResponsePath"],
+                            "rawResponseSha256": outcome["rawResponseSha256"]})
         _write_json(root / "transcripts" / "materials" / f"{material_id}.json", receipt)
         item["transcriptPath"] = f"transcripts/materials/{material_id}.json"
         item["transcriptSha256"] = _sha256(root / item["transcriptPath"])

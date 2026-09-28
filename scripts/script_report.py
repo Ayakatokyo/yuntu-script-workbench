@@ -93,12 +93,19 @@ def write_script_report(run_dir: Path) -> dict:
             raise ScriptReportError(f"detail_not_in_ranking:{material_id}")
     contract = summary.get("collectionContract")
     contract = contract if isinstance(contract, dict) else {}
+    list_params = contract.get("listParams") or {}
+    brand_scope = list_params.get("brand_scope_type", "ALL_INDUSTRY")
+    brands = list_params.get("brands") or []
     selection = {
-        "industry": (contract.get("listParams") or {}).get("industry"),
+        "industry": list_params.get("industry"),
         "period": contract.get("detailDateRange"),
-        "rankingMetric": (contract.get("listParams") or {}).get("ranking_limit_type"),
+        "rankingMetric": list_params.get("ranking_limit_type"),
         "targetTopN": contract.get("targetTopN"),
         "materialList": contract.get("materialList"),
+        "brandScope": brand_scope,
+        "brands": brands,
+        "titleBrandUnmatchedCount": (sum(not any(brand in str(row["title"]) for brand in brands)
+                                         for row in rows) if brand_scope == "SPECIFIED_BRANDS" and brands else None),
     }
     payload = {"schemaVersion": 1, "runId": manifest.get("run_id"), "counts": counts,
                "selection": selection, "rows": rows, "factsManifestSha256": _hash(manifest_path)}

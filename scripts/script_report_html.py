@@ -249,12 +249,18 @@ def render_script_report_html(report: dict) -> str:
         ("结束日期", period.get("custom_end_date") or period.get("end_date")),
         ("榜单口径", _RANKING_LABELS.get(selection.get("rankingMetric"), selection.get("rankingMetric"))),
         ("脚本素材数 TopN", selection.get("targetTopN")),
+        ("平台品牌范围", "指定品牌" if selection.get("brandScope") == "SPECIFIED_BRANDS" else "全行业"),
+        ("指定品牌", "、".join(selection.get("brands") or []) if selection.get("brandScope") == "SPECIFIED_BRANDS" else "不适用"),
         ("本地筛选条件", json.dumps(material_list.get("filters"), ensure_ascii=False) if material_list.get("filters") else "无"),
         ("本地排序", json.dumps(material_list.get("sort"), ensure_ascii=False) if material_list.get("sort") else "未提供"),
     ]
     for label, value in context:
         parts.append('<div><dt>' + label + '</dt><dd>' + _e(value) + '</dd></div>')
-    parts.append('</dl></section><section id="materials-panel" data-panel="materials"><div class="toolbar" id="report-controls" hidden><input id="material-search" type="search" placeholder="输入素材标题或 ID" aria-label="搜索素材标题或 ID"><details><summary>自定义指标</summary><div class="metric-picker">')
+    parts.append('</dl><p class="source-note">榜单保留平台返回的完整结果；本地筛选条件另列，不会按标题品牌词自动删除素材。')
+    unmatched = selection.get("titleBrandUnmatchedCount")
+    if isinstance(unmatched, int):
+        parts.append('本轮 ' + str(unmatched) + ' 条榜单标题未出现指定品牌名；这只是标题文本核对，不等于品牌归属判定。')
+    parts.append('</p></section><section id="materials-panel" data-panel="materials"><div class="toolbar" id="report-controls" hidden><input id="material-search" type="search" placeholder="输入素材标题或 ID" aria-label="搜索素材标题或 ID"><details><summary>自定义指标</summary><div class="metric-picker">')
     for column in columns:
         parts.append('<label><input type="checkbox" data-metric-choice="' + _e(column["key"]) + '">' + _e(column["label"]) + '</label>')
     if not columns:
@@ -310,6 +316,8 @@ def render_script_report_html(report: dict) -> str:
         if not metrics:
             parts.append('<p class="muted">未提供指标。</p>')
         parts.append('</div><h3>完整脚本</h3><div class="script-text">' + (_e(row["scriptText"]) if row["scriptText"] else '无可用脚本文本') + '</div>')
+        if transcript.get("reason") == "recognition_empty_after_review":
+            parts.append('<p class="source-note">Agent 音频理解后未取得可用转写，已按缺口记录；不据此断定音频无人声。复核说明：' + _e(transcript.get("reviewNote")) + '</p>')
         if row["scriptSource"] == "agent_audio":
             parts.append('<p class="source-note">音频转写无可靠时间码，不映射高光帧或画面文字。</p>')
         parts.append('<details class="source-copy"><summary>查看分层来源文本</summary><h3>平台原文</h3><div class="script-text">' + (_e(row["platformScriptText"]) if row["platformScriptText"] else '未提供') + '</div><h3>Agent 音频转写</h3><div class="script-text">' + (_e(transcript.get("text")) if transcript.get("text") else '未提供') + '</div></details></article>')

@@ -10,7 +10,7 @@ from unittest import mock
 from scripts.fact_packages import FactPackageError, build_fact_packages
 from scripts.fact_catalog import build_fact_catalog
 from scripts.script_report import write_script_report
-from scripts.script_transcription import TranscriptionError, prepare_audio, import_transcript, finalize_transcripts
+from scripts.script_transcription import TranscriptionError, prepare_audio, import_transcript, mark_unavailable, finalize_transcripts
 
 
 def write_json(path, value):
@@ -66,6 +66,7 @@ class ScriptWorkbenchTests(unittest.TestCase):
         manifest, extract = self.prepare()
         self.assertEqual(manifest["counts"], {"platform_script": 1, "pending_agent": 2, "missing_video": 1})
         self.assertEqual(extract.call_count, 1)
+        self.assertEqual(Path(extract.call_args.args[1]).parent.parent, (self.root / "audio" / "by-video").resolve())
         self.assertEqual(len(list((self.root / "audio/by-video").glob("*.wav"))), 1)
         with self.assertRaisesRegex(TranscriptionError, "agent_transcripts_pending"):
             finalize_transcripts(self.root)
@@ -115,6 +116,50 @@ class ScriptWorkbenchTests(unittest.TestCase):
         with self.assertRaisesRegex(TranscriptionError, "transcript_text_empty"):
             import_transcript(self.root, video_sha=manifest["materials"][1]["videoSha256"],
                               text_file=response, response_file=response)
+
+    def test_reviewed_empty_result_is_a_provenance_checked_gap(self):
+        manifest, _ = self.prepare()
+        video_sha = manifest["materials"][1]["videoSha256"]
+        response = self.root / "empty-response.txt"
+        response.write_text("", encoding="utf-8")
+        marked = mark_unavailable(self.root, video_sha=video_sha, response_file=response,
+                                  review_note="音频理解返回空文本，复核后仍无可用转写")
+        self.assertEqual(marked["counts"]["agent_unavailable"], 2)
+        finalized = finalize_transcripts(self.root)
+        self.assertEqual(finalized["counts"]["agent_unavailable"], 2)
+        build_fact_packages(self.root)
+        records = json.loads((self.root / "facts/script.json").read_text())["records"]
+        by_id = {record["material_id"]: record for record in records}
+        self.assertEqual(by_id["2"]["script_source"], "unavailable")
+        self.assertEqual(by_id["2"]["audio_transcript"]["reason"], "recognition_empty_after_review")
+        self.assertIn("复核后", by_id["2"]["audio_transcript"]["reviewNote"])
+        self.assertEqual(by_id["2"]["script_text"], "")
+        write_json(self.root / "run-summary.json", {
+            "runId": "fixture", "workflow": {"stage": "ready_for_analysis"},
+            "collectionContract": {"listParams": {"industry": "食品饮料",
+                                                  "brand_scope_type": "SPECIFIED_BRANDS",
+                                                  "brands": ["小仙炖", "燕之屋", "五个女博士"]}}
+        })
+        receipt = write_script_report(self.root)
+        self.assertEqual(receipt["counts"]["unavailable"], 3)
+        selection = json.loads(Path(receipt["dataPath"]).read_text(encoding="utf-8"))["selection"]
+        self.assertEqual(selection["brands"], ["小仙炖", "燕之屋", "五个女博士"])
+        self.assertEqual(selection["titleBrandUnmatchedCount"], 4)
+        self.assertIn("不据此断定音频无人声", Path(receipt["reportPath"]).read_text(encoding="utf-8"))
+        (self.root / "transcripts" / "raw" / f"{video_sha}.txt").write_text("tampered", encoding="utf-8")
+        with self.assertRaisesRegex(FactPackageError, "transcript source hash mismatch"):
+            build_fact_packages(self.root)
+
+    def test_reviewed_gap_can_be_replaced_by_real_transcript(self):
+        manifest, _ = self.prepare()
+        video_sha = manifest["materials"][1]["videoSha256"]
+        response = self.root / "agent-response.txt"
+        response.write_text("", encoding="utf-8")
+        mark_unavailable(self.root, video_sha=video_sha, response_file=response,
+                         review_note="音频理解返回空文本，复核后仍无可用转写")
+        response.write_text("实际口播", encoding="utf-8")
+        imported = import_transcript(self.root, video_sha=video_sha, text_file=response, response_file=response)
+        self.assertEqual(imported["counts"]["agent_transcribed"], 2)
 
 
 if __name__ == "__main__":

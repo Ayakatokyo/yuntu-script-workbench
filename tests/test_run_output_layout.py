@@ -1,6 +1,6 @@
 """Keep the workbench's public output layout aligned with its documented contract."""
 
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import importlib.util
 import io
 import json
@@ -55,6 +55,29 @@ class OutputLayoutTests(unittest.TestCase):
                                      "--output-dir", temporary])
         self.assertEqual(status, 0)
         prepare.assert_called_once_with(Path(temporary))
+
+    def test_acquire_reports_audio_stage_on_failure(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(workbench, "collector_main", return_value=0), \
+                mock.patch.object(workbench, "prepare_audio", side_effect=workbench.TranscriptionError("audio_failed")), \
+                redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()) as errors:
+            status = workbench.main(["acquire", "--shop-id", "fixture", "--query-spec", "fixture.json",
+                                     "--output-dir", temporary])
+        self.assertEqual(status, 2)
+        failure = json.loads(errors.getvalue())
+        self.assertEqual(failure["stage"], "prepare_audio")
+        self.assertEqual(failure["runDir"], temporary)
+
+    def test_mark_unavailable_uses_public_entry(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(workbench, "mark_unavailable", return_value={"counts": {"agent_unavailable": 1}}) as mark, \
+                redirect_stdout(io.StringIO()):
+            status = workbench.main(["mark-unavailable", "--run-dir", temporary,
+                                     "--video-sha", "abc", "--response-file", "response.txt",
+                                     "--review-note", "复核后没有可用的语音文字"])
+        self.assertEqual(status, 0)
+        mark.assert_called_once_with(Path(temporary), video_sha="abc", response_file=Path("response.txt"),
+                                     review_note="复核后没有可用的语音文字")
 
     def test_finalize_does_not_recollect(self):
         with tempfile.TemporaryDirectory() as temporary, \

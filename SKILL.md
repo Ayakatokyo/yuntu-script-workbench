@@ -20,17 +20,21 @@ python "$SKILL_ROOT/scripts/run.py" acquire --shop-id "$AUTHORIZED_SHOP_ID" --qu
 python "$SKILL_ROOT/scripts/run.py" prepare-audio --run-dir "$RUN_DIR"
 ```
 
-`acquire` 结束时若有待处理音频，状态是 `awaiting_agent_transcripts`，不是报告完成。读取 `RUN_DIR/transcripts/manifest.json`，对 `pending_agent` 的**唯一视频 SHA**使用 Agent 原生 `batch_understand_files`，传入 `audioPath` 对应的绝对路径，`purpose` 要求“忠实转写中文口播，只返回实际听到的文字；保留品牌、人名、数字与促销表述；听不清时明确标记，不依据标题、画面或其他素材补写，不输出分析、摘要或虚构时间戳”。此工具由 Agent 调用，普通 Python 脚本不能调用；工具不可用或返回空结果时保留待处理状态，不伪造脚本。对单次批量空结果可拆成较小批次重试；单次最多五条只是既有运行观察，并非确认的硬上限。相同视频 SHA 只识别一次。
+`acquire` 结束时若有待处理音频，状态是 `awaiting_agent_transcripts`，不是报告完成。读取 `RUN_DIR/transcripts/manifest.json`，对 `pending_agent` 的**唯一视频 SHA**使用 Agent 原生 `batch_understand_files`，传入 `audioPath` 对应的绝对路径，`purpose` 要求“忠实转写中文口播，只返回实际听到的文字；保留品牌、人名、数字与促销表述；听不清时明确标记，不依据标题、画面或其他素材补写，不输出分析、摘要或虚构时间戳”。此工具由 Agent 调用，普通 Python 脚本不能调用；工具不可用或返回空结果时先保留待处理状态，不伪造脚本。可拆成较小批次重试；单次最多五条只是既有运行观察，并非确认的硬上限。相同视频 SHA 只识别一次。
 
 将每条工具的完整回复原样保存为 UTF-8 文件；若回复不只有口播，另存经核听整理的纯转写文本。按清单给出的 `videoSha256` 同时导入两份文件；回复本来只有口播时可对两个参数使用同一文件。导入只接受非空文本，并绑定本轮视频、音频和原始回复哈希；不得把模型说明当口播事实。
 
 ```bash
 python "$SKILL_ROOT/scripts/run.py" import-transcript --run-dir "$RUN_DIR" --video-sha "$VIDEO_SHA256" --text-file "$TRANSCRIPT_TEXT_FILE" --response-file "$RAW_RESPONSE_FILE"
+# 若识别后仍无可用口播文本：保留原始回复，写明实际复核依据，再将该视频记为缺口
+python "$SKILL_ROOT/scripts/run.py" mark-unavailable --run-dir "$RUN_DIR" --video-sha "$VIDEO_SHA256" --response-file "$RAW_RESPONSE_FILE" --review-note '复核音频与工具回复后仍无可用口播文本'
 python "$SKILL_ROOT/scripts/run.py" finalize-scripts --run-dir "$RUN_DIR"
 python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR"
 ```
 
-`finalize-scripts` 在仍有待转写视频时拒绝生成最终报告；完成后重建事实包并生成 `script-report/index.html`、`report.json` 和哈希收据。HTML 固定为“素材筛选条件、素材榜单、脚本内容公式、单素材脚本、脚本片段库”五个分区，沿用千川工作台的离线页面风格；榜单展示本轮完整已核验榜单，点击已获详情的素材可查看完整脚本。公式仅统计平台事实中的可读标签，片段库仅收录能在完整脚本中精确命中的来源原句。无视频或无音轨等缺口会保留并展示，不会写成成功转写。`render-script-report` 可在全部文本导入后重新生成报告。`--output-root` 可指定数据根；`--output-dir` 可指定现有运行目录，两者互斥。
+`finalize-scripts` 在仍有待转写视频时拒绝生成最终报告；已复核的空结果由 `mark-unavailable` 形成可核验缺口，不断言音频无人声。完成后重建事实包并生成 `script-report/index.html`、`report.json` 和哈希收据。HTML 固定为“素材筛选条件、素材榜单、脚本内容公式、单素材脚本、脚本片段库”五个分区，沿用千川工作台的离线页面风格；榜单展示本轮完整已核验榜单，点击已获详情的素材可查看完整脚本。筛选条件显示平台请求的品牌范围及仅按标题统计的未命中数；该数不代表真实品牌归属，也不自动删除榜单素材。公式仅统计平台事实中的可读标签，片段库仅收录能在完整脚本中精确命中的来源原句。无视频或无音轨等缺口会保留并展示，不会写成成功转写。`render-script-report` 可在全部文本导入后重新生成报告。`--output-root` 可指定数据根；`--output-dir` 可指定现有运行目录，两者互斥。
+
+异步执行 `acquire` 时要读取其终态和 `run-summary.json` / `batch-manifest.json`，不要仅依据同步 Bash 日志的 `exit_code`；调用 CLI 时保留原始进程退出码，避免用后续 `echo` 覆盖。CLI 错误会输出 `stage` 与 `runDir`，便于从同一运行目录补做音频准备或排查采集阶段。
 
 平台原脚本和 Agent 音频转写分开保存；`script_text` 优先取平台原文，否则取有效的 Agent 转写，`script_source` 为 `platform|agent_audio|unavailable`。音频理解结果没有可靠句段时间戳，本工作台不建立口播与高光帧的时间映射，也不把画面字幕当口播。报告完成后等待用户提出分析问题，不自动生成商业结论。
 
