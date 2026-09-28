@@ -38,6 +38,7 @@ def build_fact_selection_prompt(spec: AnalysisSpec, catalog: FactCatalog) -> dic
             "不得生成 QuerySpec、HighlightSpec、shop_id 或采集参数。",
             "不得调用 RPA，不得读取事实目录之外的文件。",
             "无法支持的指标或问题必须放入 data_gaps，不得虚构数据。",
+            "选择 script 包用于正文或结构分析时必须同时选择 script_text，以便验证该素材有可读正文；不需要的空分段字段不能作为正文依据。",
             "选择字段时保留原始字段用于取数，同时优先使用 business_field_labels 中的业务字段名称描述选择理由。",
         ],
         "response_schema": "FactSelectionSpec",
@@ -57,6 +58,8 @@ def build_prompt_packet(spec: AnalysisSpec, selected_facts: dict, fact_index: di
         if any(ref.startswith(f"{path}#") for path in facts)
     )
     quality_gates = [
+        '每条新结论提供 field_refs：以每个 fact_ref 为键、实际使用的非空字段数组为值，例如 {"facts/script.json#/records/0":["script_text"]}。只引用所选事实中可用的字段；script_segments 不由本工作台生成，不得用其支持正文结论。',
+        '引用原话时提供 quotes 数组，每项含 fact_ref、field、text；text 必须逐字命中该素材该字段，不能改写或跨素材引用。',
         "每条结论必须包含能定位到实际 JSON 记录的 fact_refs；无引用内容只能放入 gaps 或 next_questions。",
         "相关不等于因果；不得使用导致、原因、驱动等因果表述。",
         "品牌归因优先使用原始 brand 字段；selection_group.brand_name 为空且 brand_classification.source=runtime_title_rule 时，相关 finding 必须标记为 inference、不能使用 high confidence，并填写 brand_proxy_explanation。",

@@ -143,3 +143,13 @@ class AnalysisInputTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class ScriptWorkbenchDefaultTests(unittest.TestCase):
+    def test_default_omits_missing_highlights_but_explicit_request_is_rejected(self):
+        facts = manifest(); del facts['packages']['highlight_frames']
+        status = {'status': 'ready_for_analysis', 'run_id': 'run-1'}
+        spec = parse_analysis_input('分析脚本开头', status, facts)
+        self.assertEqual(spec.sections, ('material_ranking', 'audience', 'script'))
+        self.assertEqual(validate_analysis_input(spec, status, facts), [])
+        explicit = parse_analysis_input({'business_question': '分析画面', 'sections': ['highlight_frames']}, status, facts)
+        self.assertTrue(any('highlight_frames' in str(e) for e in validate_analysis_input(explicit, status, facts)))

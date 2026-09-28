@@ -96,6 +96,68 @@ def _is_brand_proxy(claim: str) -> bool:
     return any(marker in claim for marker in BRAND_PROXY_MARKERS)
 
 
+def _field_value(record: Any, field: str) -> Any:
+    value = record
+    for part in field.split("."):
+        if not part or not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def _field_available(record: dict, field: str) -> bool:
+    value = _field_value(record, field)
+    if value is None or (isinstance(value, str) and not value.strip()) or value == [] or value == {}:
+        return False
+    availability = record.get("data_availability", {})
+    if not isinstance(availability, dict):
+        return False
+    if availability.get("available") is False:
+        return False
+    for key, state in availability.items():
+        if (field == key or field.startswith(key + ".")) and isinstance(state, dict):
+            if state.get("available") is False or state.get("missing_reason") == "source_empty":
+                return False
+    return not _has_source_empty(value)
+
+
+def _validate_field_evidence(finding: dict, refs: list, fact_index: dict, prefix: str) -> list:
+    """Explicit field scope avoids unrelated missing fields poisoning a record."""
+    errors = []
+    fields = finding.get("field_refs")
+    if not isinstance(fields, dict) or set(fields) != set(refs):
+        return [_error("field_refs_invalid", prefix + ".field_refs", "field_refs must map every fact_ref to its used fields", "为每个 fact_ref 提供非空字段数组，例如 [script_text]。")]
+    for ref, names in fields.items():
+        record = fact_index.get(ref)
+        if not isinstance(names, list) or not names or any(not isinstance(n, str) or not n.strip() for n in names):
+            errors.append(_error("field_refs_invalid", prefix, "field_refs requires non-empty field names", "填写实际使用的字段路径。"))
+            continue
+        if not isinstance(record, dict):
+            continue  # The record gate reports out-of-bounds refs.
+        # A script record with no readable text remains a gap, even if an ID exists.
+        if "facts/script.json#" in ref and not _field_available(record, "script_text"):
+            errors.append(_error("source_empty", prefix, "script_text source_empty may only enter gaps", "无可用正文的素材仅进入 gaps。"))
+        for name in names:
+            if name.startswith("data_availability") or not _field_available(record, name):
+                errors.append(_error("field_unavailable", prefix, f"unavailable evidence field: {ref}/{name}", "只引用当前所选事实中可用的字段。"))
+    quotes = finding.get("quotes", [])
+    if not isinstance(quotes, list):
+        return errors + [_error("quotes_invalid", prefix, "quotes must be an array", "原话引用提供 fact_ref、field、text。")]
+    for quote in quotes:
+        if not isinstance(quote, dict):
+            errors.append(_error("quote_invalid", prefix, "quote must be an object", "提供 fact_ref、field、text。"))
+            continue
+        ref, field, text = quote.get("fact_ref"), quote.get("field"), quote.get("text")
+        if (not isinstance(ref, str) or not isinstance(field, str)
+                or not isinstance(fields.get(ref), list) or field not in fields[ref]):
+            errors.append(_error("quote_reference_invalid", prefix, "quote is outside declared field_refs", "引文必须绑定本条结论的字段引用。"))
+            continue
+        value = _field_value(fact_index.get(ref), field)
+        if not isinstance(value, str) or not isinstance(text, str) or not text.strip() or text not in value:
+            errors.append(_error("quote_mismatch", prefix, "quote is not an exact substring of its source field", "保留来源正文的逐字原话。"))
+    return errors
+
+
 def _record_has_empty_brand(record: Any) -> bool:
     return bool(_brand_proxy_info(record))
 
@@ -208,7 +270,9 @@ def validate_analysis_result(
                 errors.append(_error("fact_ref_out_of_bounds", ref_path, f"fact_ref does not resolve: {ref}", "只引用本次选择且存在于 fact_index 的记录。"))
             else:
                 referenced_records.append(fact_index[ref])
-        if any(
+        if "field_refs" in finding:
+            errors.extend(_validate_field_evidence(finding, refs, fact_index, prefix))
+        elif any(
             _has_source_empty(
                 fact_index[ref],
                 ignore_script_fields="highlight-frames.json" in ref,
@@ -217,6 +281,8 @@ def validate_analysis_result(
             if ref in fact_index
         ):
             errors.append(_error("source_empty", prefix, f"{prefix} references source_empty data; source_empty may only enter gaps", "移入 gaps 或改为引用可用字段。"))
+        if "quotes" in finding and "field_refs" not in finding:
+            errors.append(_error("field_refs_required", prefix, "quotes require field_refs", "为原话声明实际引用字段。"))
         claim_text = claim if isinstance(claim, str) else ""
         if any(marker in claim_text for marker in CAUSAL_MARKERS):
             errors.append(_error("causal_language", f"{prefix}.claim", f"{prefix} 包含不受支持的因果表述；相关不等于因果", "改为描述观察或关联，并标记为 inference。"))

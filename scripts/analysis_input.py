@@ -123,7 +123,14 @@ def parse_analysis_input(payload: dict | str, run_status: dict, manifest: dict) 
     question = raw.get("business_question")
     question_source = raw.get("business_question_source", "user")
     user_confirmed = raw.get("user_confirmed", question_source == "user")
-    sections = raw.get("sections", list(AVAILABLE_SECTIONS))
+    # Defaults follow the persisted capabilities; explicit requests still fail
+    # validation when the requested package is unavailable.
+    sections = raw.get("sections", [section for section in AVAILABLE_SECTIONS
+                                    if section in manifest.get("packages", {})])
+    ranking = manifest.get("packages", {}).get("material_ranking", {})
+    count = ranking.get("record_count") if isinstance(ranking, dict) else None
+    if isinstance(count, int) and not isinstance(count, bool) and count > 0:
+        filters.setdefault("rank_range", [1, min(count, 1000)])
     resolved_run_id = raw.get("run_id") or _run_id(run_status, manifest)
     analysis_id = raw.get("analysis_id") or f"analysis-{uuid.uuid4().hex}"
     return parse_analysis_spec({

@@ -22,7 +22,7 @@ FACT_SELECTION_RESPONSE_SCHEMA = "FactSelectionSpec"
 
 BASE_SYSTEM_RULES = (
     "只使用给定事实，不补充外部资料或未提供的记录。",
-    "每条结论必须带能定位到事实记录的 fact_refs。",
+    "每条结论必须带 fact_refs 及 field_refs；field_refs 将每个记录引用映射到实际使用字段数组。原话 quotes 提供 fact_ref、field、text 并逐字命中来源。",
     "相关不等于因果；不得把相关、共现或高光解释表述为因果。",
     "品牌代理识别必须标记为推断并降低置信度，且只能使用运行时品牌候选范围。",
     "脚本字段为 source_empty 时只能进入 gaps，不得用标题或标签替代脚本。",

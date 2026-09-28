@@ -49,3 +49,11 @@ python "$SKILL_ROOT/scripts/run.py" workflow --run-dir "$RUN_DIR" --business-que
 ```
 
 新取数需要用户对云图账号和目标范围的授权；离线准备、导入和报告重建只处理已有运行。音频使用平台理解通道时会发送到平台模型服务；客户视频、音频、转写和报告保存在用户工作目录，不进入技能 ZIP。
+
+## 第二阶段字段证据（2026-09-28）
+
+普通自然语言 `workflow` 默认只选 manifest 中实际存在的分析分区；默认排名范围不超过本轮榜单记录数。显式要求缺失分区或越界排名仍拒绝，不能借分析重新采集。事实选择若包含脚本正文/结构分析，须选入 `script_text` 验证正文可用性。
+
+新 finding 在原 `fact_refs` 基础上提供 `field_refs`：每个记录引用都映射到实际使用的非空字段路径数组，键必须与该 finding 的 `fact_refs` 完全一致。例：`{"facts/script.json#/records/0":["script_text"]}`。校验仅检查这些字段及其可用性，保留完整审计字段；正文可用而 `script_segments` 为空不会连带拒绝正文结论。空正文素材仍只能进入 gaps，不能改引用素材 ID 绕过；字段越界、空字段、品牌代理归因和因果表述门禁仍执行。
+
+逐字原话使用 `quotes` 数组，每项为 `{"fact_ref":"facts/script.json#/records/0","field":"script_text","text":"来源中的原话"}`，绑定本 finding 的字段引用，必须在对应素材对应字段中精确命中。已有不含 field_refs 的结果保留原保守记录级校验；旧的失败结果须显式补全实际字段后通过正式 workflow 再提交，不能批量删除缺口标记或绕过发布。工作台不生成分段/时间映射，缺少分段不等于无正文；此改动不回写旧事实包。
