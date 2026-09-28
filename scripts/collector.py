@@ -27,6 +27,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import rpa_dynamic_client as list_dynamic_rpa
 import rpa_dynamic_detail_client as detail_dynamic_rpa
 from runtime_paths import external_runtime_path
+from analysis_delivery import timed_phase
 
 try:
     from yuntu_batch import (
@@ -210,8 +211,11 @@ DETAIL_FIELDS = {
 }
 SHANGHAI_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-class RpaConnectorError(RuntimeError):
-    """Raised when the connector cannot safely complete an operation."""
+from rpa_failure import RemoteTaskError
+
+
+class RpaConnectorError(RemoteTaskError):
+    """Connector failure with a safe task receipt."""
 
 
 def shanghai_today(now=None):
@@ -753,7 +757,7 @@ def wait_fetch_task(
         if status in SUCCESS_TASK_STATUSES:
             return {**result, "task_group_id": task_group_id}
         if status == "failed":
-            raise RpaConnectorError(f"RPA task failed: {task_group_id}")
+            raise RpaConnectorError(f"RPA task failed: {task_group_id}", task_group_id=task_group_id, errors=result.get("errors"))
         if status not in RUNNING_TASK_STATUSES:
             raise RpaConnectorError(f"RPA task returned unknown status {status!r}: {task_group_id}")
 
@@ -1062,6 +1066,15 @@ def _workflow_output_path(run_dir, analysis_id, output):
     return path
 
 
+def _render_workflow_delivery(root):
+    try:
+        from .analysis_delivery_adapter import render_analysis_delivery
+    except ImportError:
+        from analysis_delivery_adapter import render_analysis_delivery
+    return render_analysis_delivery(root)
+
+
+@timed_phase("validate_and_publish_analysis_inputs")
 def _analysis_pipeline(run_dir, spec_path=None, result_path=None, input_payload=None, *, context=None):
     if not result_path:
         raise ValueError(
@@ -1074,6 +1087,14 @@ def _analysis_pipeline(run_dir, spec_path=None, result_path=None, input_payload=
     selected = context["selected"]
     fact_index = context["fact_index"]
     packet = context["packet"]
+    raw_result = json.loads(Path(result_path).read_text(encoding="utf-8"))
+    if isinstance(raw_result, dict) and "_handoff" in raw_result:
+        if not context.get("phase_two"):
+            raise ValueError("bound result templates require workflow")
+        from analysis_delivery import verify_pages
+        handoff = verify_pages(analysis_context_dir(root, spec.analysis_id))
+        if raw_result["_handoff"] != {"identity": handoff["identity"], "inputHashes": handoff["inputHashes"]}:
+            raise ValueError("analysis result handoff identity or inputs differ")
     results = _load_analysis_results(result_path)
     normalized_results = [normalize_analysis_result(result) for result in results]
     result_errors = [
@@ -1280,6 +1301,8 @@ def main(argv=None):
                         "analysis_id": request["host_context"]["analysis_id"],
                         "run_id": request["host_context"]["run_id"],
                         "model_analysis_request_path": str(context_root / "model-analysis-request.json"),
+                        "handoff_index_path": str(context_root / "handoff-index.json"),
+                        "result_template_path": str(context_root / "result-template.json"),
                         "host_handoff": {
                             "model": "current_conversation_model",
                             "response_schema": "AnalysisResult",
@@ -1353,6 +1376,7 @@ def main(argv=None):
                     raise
                 print(json.dumps({
                     "status": "analysis_completed",
+                    "delivery": _render_workflow_delivery(context_root),
                     "report_path": str(_analysis_output_paths(output)["report"]),
                     "analysis_result_path": str(_analysis_output_paths(output)["result"]),
                     "model_analysis_request_path": str(_analysis_output_paths(output)["request"]),
@@ -1364,6 +1388,8 @@ def main(argv=None):
                 "analysis_id": request["host_context"]["analysis_id"],
                 "run_id": request["host_context"]["run_id"],
                 "selected_record_counts": selected["selection_summary"]["selected_record_counts"],
+                "handoff_index_path": str(context_root / "handoff-index.json"),
+                "result_template_path": str(context_root / "result-template.json"),
                 "model_analysis_request_path": str(context_root / "model-analysis-request.json"),
                 "host_handoff": {
                     "model": "current_conversation_model",

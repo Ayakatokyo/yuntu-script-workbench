@@ -365,7 +365,9 @@ def complete_model_analysis(run_root: Path, analysis_id: str, result_path: Path,
     if attempts and attempts[-1].get("status") == "running":
         attempts[-1].update({"status": "completed", "result_path": str(path), "report_path": str(report_path) if report_path else None, "completed_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")})
         _save_attempts(analysis_context_dir(root, analysis_id), attempts)
-    return _set_analysis_stage(root, analysis_id, "analysis_completed", result_path=str(path))
+    import hashlib
+    return _set_analysis_stage(root, analysis_id, "analysis_completed", result_path=str(path.resolve()),
+                               result_sha256=hashlib.sha256(path.read_bytes()).hexdigest())
 
 
 def fail_model_analysis(run_root: Path, analysis_id: str, request_id: str, error: str) -> dict:

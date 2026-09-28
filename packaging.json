@@ -205,6 +205,18 @@
     {
       "source": "scripts/yuntu_run_state.py",
       "destination": "scripts/yuntu_run_state.py"
+    },
+    {
+      "source": "scripts/analysis_delivery.py",
+      "destination": "scripts/analysis_delivery.py"
+    },
+    {
+      "source": "scripts/analysis_delivery_adapter.py",
+      "destination": "scripts/analysis_delivery_adapter.py"
+    },
+    {
+      "source": "scripts/rpa_failure.py",
+      "destination": "scripts/rpa_failure.py"
     }
   ]
 }

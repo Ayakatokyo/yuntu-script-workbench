@@ -36,6 +36,12 @@ except ImportError:  # pragma: no cover - direct script imports
     )
 
 
+try:
+    from .analysis_delivery import timed_phase
+except ImportError:
+    from analysis_delivery import timed_phase
+
+
 def _read(path: Path) -> Any:
     with path.open(encoding="utf-8") as source:
         return json.load(source)
@@ -66,6 +72,7 @@ def _spec_for_question(run_dir: Path, business_question: str) -> AnalysisSpec:
     return spec
 
 
+@timed_phase("prepare_fact_selection_handoff")
 def prepare_fact_selection_handoff(run_dir: Path, business_question: str) -> dict[str, Any]:
     """Persist the first phase-two handoff for the current conversation model."""
     root = Path(run_dir)
@@ -97,6 +104,7 @@ def _selection_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[st
     return intent, selection, run_id.strip(), data_gaps
 
 
+@timed_phase("apply_fact_selection_result")
 def apply_fact_selection_result(
     run_dir: Path, analysis_id: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
@@ -146,6 +154,7 @@ def apply_fact_selection_result(
     return serializable
 
 
+@timed_phase("prepare_model_analysis_handoff")
 def prepare_model_analysis_handoff(run_dir: Path, analysis_id: str) -> dict[str, Any]:
     """Build the final current-model request from the locally selected facts."""
     root = Path(run_dir)
@@ -178,6 +187,12 @@ def prepare_model_analysis_handoff(run_dir: Path, analysis_id: str) -> dict[str,
     )
     _write(context / "model-analysis-request.json", request)
     _write(context / "prompt-packet.json", request["host_context"].get("facts", {}))
+    try:
+        from .analysis_delivery_adapter import prepare_delivery, verified_context
+    except ImportError:
+        from analysis_delivery_adapter import prepare_delivery, verified_context
+    prepare_delivery(context, request, fact_index, selected_context.get("data_gaps", []))
+    verified_context(context)
     return request
 
 

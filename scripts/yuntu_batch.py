@@ -54,7 +54,10 @@ else:
     from material_list_selection import select_materials, MaterialListSelectionError
 
 
-class YuntuBatchError(RuntimeError):
+from rpa_failure import RemoteTaskError
+
+
+class YuntuBatchError(RemoteTaskError):
     """Raised when a Yuntu batch cannot be started."""
 
 
@@ -1273,6 +1276,9 @@ def fetch_batch(
     except Exception as exc:
         manifest["status"] = "list_failed"
         manifest["error"] = str(exc)
+        if getattr(exc, "failure_details", None):
+            manifest["failureDetails"] = exc.failure_details
+            summary["stages"]["list"]["failureDetails"] = exc.failure_details
         manifest["timingsSec"]["totalSec"] = _elapsed(started)
         summary["status"] = "list_failed"
         summary["stages"]["list"]["requestStatus"] = "failed"
@@ -1574,7 +1580,8 @@ def fetch_batch(
                             ).casefold()
                             if terminal_status == "failed":
                                 raise YuntuBatchError(
-                                    f"RPA task failed: {material_id}"
+                                    f"RPA task failed: {material_id}",
+                                    task_group_id=task_attempt.get("task_group_id"), errors=response.get("errors")
                                 )
                             if terminal_status not in {"completed", "partial_success"}:
                                 _set_first_batch_outcome(manifest, material_id, "unconfirmed")
@@ -1658,6 +1665,7 @@ def fetch_batch(
                                 **_manifest_material(item),
                                 "reason": exc.__class__.__name__,
                                 "error": str(exc),
+                                "failureDetails": getattr(exc, "failure_details", None),
                                 "timingsSec": {"detailFetchSec": _elapsed(result["started"])},
                             }
                         )
