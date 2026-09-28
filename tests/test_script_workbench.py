@@ -97,6 +97,11 @@ class ScriptWorkbenchTests(unittest.TestCase):
         self.assertIn("燕之屋鲜炖燕窝", Path(receipt["reportPath"]).read_text())
         report = json.loads(Path(receipt["dataPath"]).read_text(encoding="utf-8"))
         self.assertEqual(report["scriptFormulaOverview"]["coverage"]["scriptMaterialCount"], 4)
+        self.assertEqual(report["brandOverview"]["status"], "available")
+        self.assertEqual([(tab["id"], tab["count"]) for tab in report["brandOverview"]["tabs"]],
+                         [("all", 4), ("unknown", 4)])
+        self.assertEqual(report["brandOverview"]["views"]["unknown"]["scriptFormulaOverview"]["coverage"],
+                         {"scriptMaterialCount": 4, "formulaMaterialCount": 0})
         self.assertEqual(len(report["rows"][0]["core"]["defaultFieldIds"]), 7)
         self.assertEqual(report["rows"][1]["formula"]["status"], "unavailable")
         raw = self.root / "transcripts/raw" / f"{item['videoSha256']}.txt"

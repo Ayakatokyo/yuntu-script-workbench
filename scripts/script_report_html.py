@@ -31,15 +31,58 @@ def _e(value: Any) -> str:
 def _metric_columns(rows: list[dict]) -> list[dict]:
     path = Path(__file__).resolve().parents[1] / "config/yuntu-material-field-registry-v1.json"
     registry = json.loads(path.read_text(encoding="utf-8"))
-    labels = {
-        item["path"][1]: item["label"]
-        for item in registry["fields"]
-        if len(item.get("path", [])) == 2 and item["path"][0] == "metrics"
-    }
-    keys = list(dict.fromkeys(
-        key for row in rows for key in (row.get("metrics") or {})
-    ))
+    fields = [item for item in registry["fields"]
+              if len(item.get("path", [])) == 2 and item["path"][0] == "metrics"]
+    labels = {item["path"][1]: item["label"] for item in fields}
+    available = {key for row in rows for key in (row.get("metrics") or {})}
+    keys = [item["path"][1] for item in fields if item["path"][1] in available]
+    keys.extend(sorted(available - set(keys)))
     return [{"key": key, "label": labels.get(key, key)} for key in keys]
+
+
+_FIELD_GROUPS = {
+    "title": "素材基础信息", "publish_time": "素材基础信息",
+    "video_duration": "素材基础信息", "rank": "素材基础信息",
+    "material_uri": "素材基础信息", "material_tags": "素材基础信息",
+    "metrics.show_cnt": "内容曝光与播放", "metrics.play_3s_rate": "内容曝光与播放",
+    "metrics.play_5s_rate": "内容曝光与播放", "metrics.play_over_rate": "内容曝光与播放",
+    "metrics.play_duration_avg": "内容曝光与播放",
+    "metrics.ctr": "点击与转化", "metrics.cvr": "点击与转化",
+    "metrics.pvr": "点击与转化", "metrics.product_wish_button_buy_cart_rate": "点击与转化",
+    "metrics.interact_rate": "互动指标", "metrics.like_rate": "互动指标",
+    "metrics.comment_rate": "互动指标", "metrics.share_rate": "互动指标",
+}
+_FIELD_GROUP_ORDER = ("素材基础信息", "内容曝光与播放", "点击与转化", "互动指标", "其他指标")
+_DEFAULT_FIELD_IDS = ("title", "publish_time", "metrics.show_cnt", "metrics.play_3s_rate",
+                      "metrics.play_over_rate", "metrics.play_duration_avg", "metrics.ctr",
+                      "metrics.cvr", "metrics.pvr", "metrics.interact_rate")
+_ROW_FIELD_KEYS = {"publish_time": "publishTime", "video_duration": "videoDuration",
+                   "rank": "rank", "material_uri": "materialUri", "material_tags": "materialTags"}
+
+
+def _leaderboard_fields(rows: list[dict]) -> list[dict]:
+    """Use the meta report's field groups and defaults with facts available in this run."""
+    path = Path(__file__).resolve().parents[1] / "config/yuntu-material-field-registry-v1.json"
+    registry = json.loads(path.read_text(encoding="utf-8"))
+    definitions = {item["id"]: item for item in registry["fields"]}
+    available = {"title"}
+    for field_id, key in _ROW_FIELD_KEYS.items():
+        if any(row.get(key) not in (None, "", []) for row in rows):
+            available.add(field_id)
+    available.update("metrics." + item["key"] for item in _metric_columns(rows))
+    ids = [item["id"] for item in registry["fields"] if item["id"] in available]
+    ids.extend(sorted(available - set(ids)))
+    fields = [{"id": field_id, "label": definitions.get(field_id, {}).get("label", field_id),
+               "group": _FIELD_GROUPS.get(field_id, "其他指标"),
+               "kind": definitions.get(field_id, {}).get("kind", "text")}
+              for field_id in ids]
+    return sorted(fields, key=lambda field: (_FIELD_GROUP_ORDER.index(field["group"]), ids.index(field["id"])))
+
+
+def _row_field_value(row: dict, field_id: str) -> Any:
+    if field_id.startswith("metrics."):
+        return (row.get("metrics") or {}).get(field_id.removeprefix("metrics."))
+    return row.get(_ROW_FIELD_KEYS.get(field_id, field_id))
 
 
 _PERIOD_LABELS = {"LAST_7_DAYS": "近 7 天", "LAST_30_DAYS": "近 30 天", "CUSTOM": "自定义日期"}
@@ -133,7 +176,8 @@ def _quotes(rows: list[tuple[int, dict]]) -> list[dict]:
         detail = script.get("detail") if isinstance(script, dict) else None
         if not isinstance(detail, dict):
             continue
-        for value in detail.values():
+        for key in sorted(detail):
+            value = detail[key]
             candidates = value if isinstance(value, list) else [value]
             for candidate in candidates:
                 if not isinstance(candidate, str):
@@ -154,6 +198,7 @@ _STYLE = """
 """
 
 _DETAIL_STYLE = """
+.brand-tabs{display:flex;gap:8px;margin:0 0 16px;padding:5px;overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:12px}.brand-tabs button{display:inline-flex;align-items:center;gap:6px;flex:0 0 auto;min-height:36px;padding:6px 12px;border-color:transparent;white-space:nowrap}.brand-tabs button.active{border-color:var(--accent);background:var(--accent-soft);color:#1d4ed8;font-weight:650}.brand-tabs-count{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}body.modal-open{overflow:hidden}
 .script-section{display:grid;gap:16px}.script-card-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px}.script-card-header h3{margin:0}.script-card-hint{color:var(--muted);font-size:12px}.script-formula-svg{width:min(760px,100%);height:290px;margin:0 auto}.chart-box{min-width:0;max-width:100%;min-height:260px;overflow-x:auto;overflow-y:hidden}.chart-box svg{display:block;min-width:0;max-width:100%;height:290px}.script-formula-bar{fill:#5b8def;cursor:pointer}.script-formula-bar:hover,.script-formula-bar:focus{fill:#2563eb;outline:none}.chart-axis{stroke:#dfe6f0;stroke-width:1}.chart-value{fill:var(--text);font-size:12px;font-weight:650}.chart-label{fill:var(--muted);font-size:11px}.script-formula-donut{display:grid;grid-template-columns:minmax(220px,1fr) minmax(180px,1fr);align-items:center;gap:14px}.script-formula-donut svg{min-width:220px;height:270px}.donut-segment{cursor:pointer;stroke:#fff;stroke-width:2;outline:none;transform-box:view-box;transform-origin:116px 130px;transition:transform .24s ease,filter .24s ease,stroke-width .24s ease}.donut-segment:hover,.donut-segment:focus,.donut-segment.active{filter:brightness(.9)}.donut-center-label{fill:#63708a;font-size:12px;text-anchor:middle}.donut-center-value{fill:#172033;font-size:18px;font-weight:700;text-anchor:middle}.legend-item{display:grid;grid-template-columns:10px minmax(0,1fr);gap:7px;align-items:start;min-height:32px;padding:4px 6px;border:0;border-radius:6px;text-align:left;font-size:12px}.legend-item:hover,.legend-item:focus,.legend-item.active{background:var(--accent-soft);outline:none}.legend-detail{display:block;margin-top:2px;color:var(--muted)}.legend-swatch{display:block;width:10px;height:10px;margin-top:4px;border-radius:2px}.chart-tooltip{position:fixed;z-index:30;max-width:280px;padding:10px 12px;pointer-events:none;background:#172033;color:#fff;border-radius:8px;box-shadow:0 8px 24px rgba(15,23,42,.2);font-size:12px;line-height:1.65}
 .single-material-panel{scroll-margin-top:74px;padding:16px 0 22px;border-bottom:1px solid var(--line)}.single-panel-heading{display:flex;align-items:center;min-height:34px;margin:0 0 14px;padding-left:12px;border-left:4px solid var(--accent)}.single-panel-heading h3{margin:0;color:#1f2f49;font-size:18px}.single-core-toolbar{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px}.single-core-toolbar p{margin:4px 0 0;color:var(--muted);font-size:12px}.single-core-toolbar button{min-height:34px;padding:6px 10px}.single-material-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}.single-material-metrics .metric-card{min-height:104px}.single-formula-workspace{display:grid;gap:14px}.single-formula-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px}.single-formula-toolbar h3{margin:0;font-size:18px}.single-formula-copy{min-height:28px;padding:4px 8px;border:0;color:var(--muted);font-size:12px}.single-formula-legend{display:flex;flex-wrap:wrap;gap:8px 16px;color:var(--muted);font-size:12px}.single-formula-legend-item{display:inline-flex;align-items:center;gap:6px}.single-formula-legend-dot{width:9px;height:9px;border-radius:2px}.single-formula-flow{display:flex;align-items:stretch;gap:10px;overflow-x:auto;padding-bottom:2px}.single-formula-flow-group{display:grid;grid-template-rows:auto 1fr;flex:1 1 0;gap:8px;min-width:180px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#fbfdff}.single-formula-node{width:100%;min-width:0;padding:8px 10px;border:1px solid color-mix(in srgb,var(--single-formula-color) 55%,var(--line));border-radius:8px;background:color-mix(in srgb,var(--single-formula-color) 10%,white);color:var(--text);text-align:left}.single-formula-node:hover,.single-formula-node:focus-visible,.single-formula-node.active{border-color:var(--single-formula-color);background:color-mix(in srgb,var(--single-formula-color) 20%,white);color:var(--single-formula-color);outline:none}.single-formula-level{display:block;margin-bottom:3px;color:var(--muted);font-size:10px}.single-formula-node strong{display:block;overflow-wrap:anywhere;line-height:1.45}.single-formula-primary{min-height:54px;text-align:center}.single-formula-secondary-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:6px;align-content:start}.single-formula-secondary{min-height:44px;padding:6px 8px}.single-formula-empty{display:flex;align-items:center;justify-content:center;min-height:44px;color:var(--muted);font-size:12px}.single-formula-flow-arrow{display:flex;flex:0 0 22px;align-items:center;justify-content:center;color:var(--muted);font-size:20px}.single-formula-sources{display:grid;gap:12px;margin-top:4px}.single-formula-source{padding:14px;border:1px solid var(--line);border-radius:10px;background:#fbfdff}.single-formula-source-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:7px}.single-formula-source-header h3{margin:0;font-size:14px}.single-formula-source p{margin:0;line-height:1.7;white-space:pre-wrap}.single-formula-highlight{padding:1px 3px;border-radius:3px;cursor:pointer}.single-formula-highlight.active{outline:2px solid currentColor;outline-offset:1px}.single-formula-highlight:not(.active){opacity:.42}
 .field-modal{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:24px}.field-modal-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.42);backdrop-filter:blur(2px)}.field-modal-panel{position:relative;display:flex;flex-direction:column;width:min(1180px,100%);height:min(760px,calc(100vh - 48px));overflow:hidden;background:#fff;border:1px solid var(--line);border-radius:16px;box-shadow:0 24px 70px rgba(15,23,42,.24)}.field-modal-header{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:22px 24px 16px;border-bottom:1px solid var(--line)}.field-modal-header h2{margin:0}.field-modal-header p{margin:6px 0 0;color:var(--muted);font-size:13px}.field-modal-close{min-width:36px;min-height:36px;padding:0;border:0;border-radius:50%;color:var(--muted);font-size:24px}.field-modal-body{display:grid;grid-template-columns:190px minmax(0,1fr) 290px;flex:1;min-height:0}.field-modal-groups{min-width:0;padding:14px 10px;overflow:auto;background:#f8fafc;border-right:1px solid var(--line)}.field-modal-groups button{display:flex;justify-content:space-between;width:100%;min-height:38px;margin-bottom:4px;padding:8px 10px;border:0;color:#45546b;text-align:left}.field-modal-groups button.active{background:var(--accent-soft);color:#1d4ed8;font-weight:650;box-shadow:inset 3px 0 0 var(--accent)}.field-modal-main{display:flex;flex-direction:column;min-width:0;min-height:0}.field-modal-search{padding:14px 20px;border-bottom:1px solid var(--line)}.field-modal-search input{width:100%;min-width:0;height:40px;padding:8px 12px;border:1px solid var(--line-strong);border-radius:8px}.field-options{min-height:0;overflow:auto;padding:18px 22px 24px}.field-option-section+.field-option-section{margin-top:22px}.field-option-section h3{margin:0 0 10px;font-size:14px;color:#263752}.field-option-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px}.field-option{display:flex;align-items:flex-start;gap:9px;min-height:40px;padding:9px 10px;border:1px solid transparent;border-radius:8px;color:#34445e;font-size:14px;cursor:pointer}.field-option:hover{background:#f8fafc;border-color:#e6ebf3}.field-option input{width:16px;height:16px;margin:1px 0 0;accent-color:var(--accent)}.field-modal-selected{display:flex;flex-direction:column;min-width:0;min-height:0;background:#fbfcfe;border-left:1px solid var(--line)}.field-modal-selected-header{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 12px;border-bottom:1px solid var(--line)}.field-modal-selected-header span{color:var(--muted);font-size:12px}.field-modal-selected-header button{min-height:28px;padding:4px 8px;border:0;color:var(--accent);font-size:12px}.field-modal-selected-list{min-height:0;margin:0;padding:12px;overflow:auto;list-style:none}.field-modal-selected-item{display:flex;align-items:center;gap:8px;min-height:38px;margin-bottom:7px;padding:7px 8px;background:#f1f3f7;border-radius:7px;color:#34445e;font-size:13px}.field-modal-selected-item button{min-width:24px;min-height:24px;margin-left:auto;padding:0;border:0;color:var(--muted)}.field-modal-footer{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 24px;border-top:1px solid var(--line)}.field-modal-footer p{margin:0;color:var(--muted);font-size:12px}.field-modal-footer-actions{display:flex;gap:8px}.field-modal-footer .primary{border-color:var(--accent);background:var(--accent);color:#fff}
@@ -163,6 +208,16 @@ _DETAIL_STYLE = """
 _SCRIPT = """
 (() => {
   const all = selector => Array.from(document.querySelectorAll(selector));
+  const model = JSON.parse(document.getElementById("report-ui-data").textContent);
+  const fields = model.leaderboardFields || [];
+  const fieldMap = Object.fromEntries(fields.map(field => [field.id, field]));
+  const groupOrder = ["素材基础信息", "内容曝光与播放", "点击与转化", "互动指标", "其他指标"];
+  const fieldGroups = groupOrder.filter(group => fields.some(field => field.group === group));
+  const defaultFieldIds = model.defaultFieldIds || ["title"];
+  const storageKey = `yuntu-script-report:${model.runId || "unknown"}:v${model.schemaVersion || 1}:leaderboard`;
+  const orderedIds = ids => { const selected = new Set(Array.isArray(ids) ? ids : []); selected.add("title"); return fields.filter(field => selected.has(field.id)).map(field => field.id); };
+  const brandOverview = model.brandOverview || {status:"unavailable", tabs:[], materialIdsByTab:{}};
+  let selectedBrand = brandOverview.status === "available" ? "all" : null;
   const panels = all("[data-panel]");
   const tabs = all("[data-section]");
   const cards = all("[data-card]");
@@ -192,18 +247,33 @@ _SCRIPT = """
     event.preventDefault(); openMaterial(item.dataset.open);
   }));
   const search = document.getElementById("material-search");
+  function renderBrandTabs() {
+    all("[data-brand-tabs]").forEach(container => {
+      container.innerHTML = brandOverview.status === "available" ? brandOverview.tabs.map(tab => `<button type="button" role="tab" data-brand-tab-id="${escapeText(tab.id)}" aria-selected="${tab.id === selectedBrand}" class="${tab.id === selectedBrand ? "active" : ""}">${escapeText(tab.label)}<span class="brand-tabs-count">${escapeText(tab.count)}</span></button>`).join("") : '<span class="source-note">本轮品牌分类事实不可用</span>';
+    });
+  }
+  function escapeText(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;"}[char] || "&quot;")); }
+  document.addEventListener("click", event => {
+    const button = event.target.closest("[data-brand-tab-id]");
+    if (!button || !brandOverview.tabs.some(tab => tab.id === button.dataset.brandTabId)) return;
+    const focusedBar = button.closest("[data-brand-tabs]");
+    selectedBrand = button.dataset.brandTabId;
+    page = 1;
+    renderBrandTabs(); updateRows();
+    Array.from(focusedBar?.querySelectorAll("[data-brand-tab-id]") || []).find(tab => tab.dataset.brandTabId === selectedBrand)?.focus();
+    window.dispatchEvent(new CustomEvent("yuntu:brand-changed", {detail:{brandId:selectedBrand}}));
+  });
   function updateRows() {
     const query = normalize(search.value);
-    const matching = rows.filter(row => normalize(row.dataset.search).includes(query));
+    const brandIds = selectedBrand == null ? null : new Set(brandOverview.materialIdsByTab?.[selectedBrand] || []);
+    const matching = rows.filter(row => (!brandIds || brandIds.has(row.dataset.materialId)) && normalize(row.dataset.search).includes(query));
     if (sortKey && direction) matching.sort((a,b) => {
-      const number = row => {
-        const cell = Array.from(row.querySelectorAll("[data-metric]")).find(item => item.dataset.metric === sortKey);
-        const value = cell ? Number(cell.dataset.value) : NaN;
-        return Number.isFinite(value) && cell.dataset.value !== "" ? value : null;
-      };
-      const av = number(a), bv = number(b);
-      if (av === null || bv === null) return av === bv ? Number(a.dataset.row) - Number(b.dataset.row) : av === null ? 1 : -1;
-      return (av - bv) * direction || Number(a.dataset.row) - Number(b.dataset.row);
+      const value = row => row.querySelector(`[data-field-cell="${sortKey}"]`)?.dataset.sortValue || "";
+      const av = value(a), bv = value(b);
+      if (!av || !bv) return av === bv ? Number(a.dataset.row) - Number(b.dataset.row) : av ? -1 : 1;
+      const kind = fieldMap[sortKey]?.kind;
+      const compared = ["number", "integer", "rate"].includes(kind) ? Number(av) - Number(bv) : normalize(av).localeCompare(normalize(bv));
+      return compared * direction || Number(a.dataset.row) - Number(b.dataset.row);
     });
     page = Math.max(1, Math.min(page, Math.max(1, Math.ceil(matching.length / pageSize))));
     rows.forEach(row => { row.hidden = true; });
@@ -220,7 +290,7 @@ _SCRIPT = """
   search.addEventListener("input", () => { page = 1; updateRows(); });
   all("[data-sort]").forEach(button => button.addEventListener("click", () => {
     const key = button.dataset.sort;
-    direction = sortKey === key ? direction === -1 ? 1 : direction === 1 ? 0 : -1 : -1;
+    direction = sortKey === key ? direction === 1 ? -1 : direction === -1 ? 0 : 1 : 1;
     sortKey = direction ? key : "";
     all("[data-sort] span").forEach(mark => { mark.textContent = ""; });
     if (direction) button.querySelector("span").textContent = direction === 1 ? " ↑" : " ↓";
@@ -228,20 +298,41 @@ _SCRIPT = """
   }));
   document.getElementById("previous-page").onclick = () => { page--; updateRows(); };
   document.getElementById("next-page").onclick = () => { page++; updateRows(); };
-  const defaults = ["show_cnt","ctr","cvr","interact_rate"];
-  const checks = all("[data-metric-choice]");
-  const available = checks.map(item => item.dataset.metricChoice);
-  const chosen = defaults.filter(key => available.includes(key));
-  if (!chosen.length) chosen.push(...available.slice(0,4));
+  const modal = document.getElementById("field-management"), fieldGroupButtons = document.getElementById("field-groups"), fieldSearch = document.getElementById("field-search"), fieldOptions = document.getElementById("field-options"), selectedFields = document.getElementById("selected-fields");
+  const picker = {visibleIds:[], draftIds:null, query:"", group:fieldGroups[0] || "", lastFocused:null};
+  try { picker.visibleIds = orderedIds(JSON.parse(localStorage.getItem(storageKey) || "null") || defaultFieldIds); }
+  catch (_) { picker.visibleIds = orderedIds(defaultFieldIds); }
   function showColumns() {
-    const selected = new Set(checks.filter(item => item.checked).map(item => item.dataset.metricChoice));
+    const selected = new Set(picker.visibleIds);
     all("[data-col]").forEach(item => { item.hidden = !selected.has(item.dataset.col); });
-    all("[data-metric]").forEach(item => { item.hidden = !selected.has(item.dataset.metric); });
+    all("[data-field-cell]").forEach(item => { item.hidden = !selected.has(item.dataset.fieldCell); });
   }
-  checks.forEach(item => {
-    item.checked = chosen.includes(item.dataset.metricChoice);
-    item.addEventListener("change", showColumns);
+  function renderDialog() {
+    picker.draftIds = orderedIds(picker.draftIds);
+    fieldGroupButtons.innerHTML = fieldGroups.map(group => `<button type="button" data-field-group="${escapeText(group)}" class="${!picker.query && picker.group === group ? "active" : ""}">${escapeText(group)}<span>${fields.filter(field => field.group === group).length}</span></button>`).join("");
+    const query = normalize(picker.query);
+    const available = fields.filter(field => query ? normalize(field.label).includes(query) || normalize(field.id).includes(query) : field.group === picker.group);
+    const grouped = {}; available.forEach(field => (grouped[field.group] ||= []).push(field));
+    fieldOptions.innerHTML = Object.entries(grouped).map(([group, items]) => `<section class="field-option-section"><h3>${escapeText(group)}</h3><div class="field-option-grid">${items.map(field => `<label class="field-option"><input type="checkbox" data-field-id="${escapeText(field.id)}"${picker.draftIds.includes(field.id) ? " checked" : ""}${field.id === "title" ? " disabled" : ""}><span>${escapeText(field.label)}</span></label>`).join("")}</div></section>`).join("") || '<div class="empty">没有匹配字段</div>';
+    document.getElementById("selected-count").textContent = `（${picker.draftIds.length}）`;
+    selectedFields.innerHTML = picker.draftIds.map(id => { const field = fieldMap[id]; return `<li class="field-modal-selected-item"><span class="field-drag-handle">☷</span><span>${escapeText(field.label)}</span>${id === "title" ? '<span class="field-required">固定</span>' : `<button type="button" data-remove-field-id="${escapeText(id)}" aria-label="移除${escapeText(field.label)}">×</button>`}</li>`; }).join("");
+  }
+  function openDialog(event) { picker.lastFocused = event.currentTarget; picker.draftIds = [...picker.visibleIds]; picker.query = ""; picker.group = fieldGroups[0] || ""; fieldSearch.value = ""; modal.hidden = false; document.body.classList.add("modal-open"); renderDialog(); fieldSearch.focus(); }
+  function closeDialog() { modal.hidden = true; picker.draftIds = null; picker.query = ""; document.body.classList.remove("modal-open"); picker.lastFocused?.focus(); }
+  modal.addEventListener("click", event => {
+    const action = event.target.closest("[data-field-action]")?.dataset.fieldAction;
+    if (action === "cancel") { closeDialog(); return; }
+    if (action === "confirm") { picker.visibleIds = orderedIds(picker.draftIds); try { localStorage.setItem(storageKey, JSON.stringify(picker.visibleIds)); } catch (_) {} page = 1; closeDialog(); showColumns(); updateRows(); return; }
+    if (action === "reset") { picker.draftIds = orderedIds(defaultFieldIds); renderDialog(); return; }
+    const group = event.target.closest("[data-field-group]")?.dataset.fieldGroup;
+    if (group) { picker.group = group; picker.query = ""; fieldSearch.value = ""; renderDialog(); return; }
+    const remove = event.target.closest("[data-remove-field-id]")?.dataset.removeFieldId;
+    if (remove) { picker.draftIds = picker.draftIds.filter(id => id !== remove); renderDialog(); }
   });
+  modal.addEventListener("change", event => { const input = event.target.closest("[data-field-id]"); if (!input || input.dataset.fieldId === "title") return; picker.draftIds = orderedIds(input.checked ? [...picker.draftIds, input.dataset.fieldId] : picker.draftIds.filter(id => id !== input.dataset.fieldId)); renderDialog(); });
+  fieldSearch.addEventListener("input", event => { picker.query = event.target.value; renderDialog(); fieldSearch.focus(); });
+  document.getElementById("field-button").addEventListener("click", openDialog);
+  document.addEventListener("keydown", event => { if (event.key === "Escape" && !modal.hidden) closeDialog(); });
   showColumns();
   if (cards.length) {
     cards.forEach((item,index) => { item.hidden = index !== 0; });
@@ -256,14 +347,14 @@ _SCRIPT = """
     const query = normalize(quoteSearch.value);
     quoteCards.forEach(card => { card.hidden = !normalize(card.textContent).includes(query); });
   });
-  section("filters"); updateRows();
+  renderBrandTabs(); section("filters"); updateRows();
 })();
 """
 
 _DETAIL_SCRIPT = """
 (() => {
   const model = JSON.parse(document.getElementById("report-ui-data").textContent);
-  const formulaOverview = model.scriptFormulaOverview;
+  let formulaOverview = model.scriptFormulaOverview;
   const singleModels = model.singleModels;
   const esc = value => String(value == null ? "" : value).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\\"":"&quot;","'":"&#39;"}[char]));
   const normalize = value => String(value == null ? "" : value).normalize("NFKC").toLocaleLowerCase().trim();
@@ -334,11 +425,17 @@ _DETAIL_SCRIPT = """
     attachChart(secondaryLegend, children, "二级内容公式", parent?.value || 0);
   }
   document.getElementById("script-formula-secondary-back").addEventListener("click", () => { chartState.primary = null; chartState.secondary = null; renderScriptFormula(); });
+  window.addEventListener("yuntu:brand-changed", event => {
+    formulaOverview = model.brandOverview?.views?.[event.detail?.brandId]?.scriptFormulaOverview || {status:"unavailable",coverage:{formulaMaterialCount:0},primaryBuckets:[],secondaryBucketsByPrimary:{}};
+    chartState.primary = null; chartState.secondary = null;
+    document.getElementById("script-formula-total").textContent = formulaOverview.coverage?.formulaMaterialCount || 0;
+    renderScriptFormula();
+  });
   document.querySelector('[data-section="scripts"]').addEventListener("click", renderScriptFormula);
   const groupOrder = ["展现指标", "互动/种草指标", "转化指标"];
   const groupById = {"metrics.show_cnt":"展现指标","metrics.ctr":"展现指标","metrics.play_over_rate":"展现指标","metrics.play_3s_rate":"展现指标","metrics.play_5s_rate":"展现指标","metrics.interact_rate":"互动/种草指标","metrics.like_rate":"互动/种草指标","metrics.comment_rate":"互动/种草指标","metrics.share_rate":"互动/种草指标","metrics.cvr":"转化指标","metrics.pvr":"转化指标","metrics.product_wish_button_buy_cart_rate":"转化指标"};
   const storageKey = `yuntu-script-report:${model.runId || "unknown"}:v${model.schemaVersion}:single-core`;
-  const coreState = {visibleIds:null, draftIds:null, query:"", group:groupOrder[0]};
+  const coreState = {visibleIds:null, draftIds:null, query:"", group:groupOrder[0], lastFocused:null};
   const modal = document.getElementById("single-core-field-management"), fieldGroups = document.getElementById("single-core-field-groups"), fieldSearch = document.getElementById("single-core-field-search"), fieldOptions = document.getElementById("single-core-field-options"), selectedFields = document.getElementById("single-core-selected-fields");
   const currentIndex = () => document.querySelector("[data-card]:not([hidden])")?.dataset.card;
   const currentModel = () => singleModels[currentIndex()] || null;
@@ -372,8 +469,8 @@ _DETAIL_SCRIPT = """
     document.getElementById("single-core-selected-count").textContent = `（${selected.length}）`;
     selectedFields.innerHTML = selected.map(field => `<li class="field-modal-selected-item"><span class="field-drag-handle">☷</span><span>${esc(field.label)}</span><button type="button" data-core-remove="${esc(field.id)}" aria-label="移除${esc(field.label)}">×</button></li>`).join("") || '<li class="empty">暂无已选择指标</li>';
   }
-  function openDialog() { const material = currentModel(); if (!material) return; loadFields(); coreState.draftIds = [...coreState.visibleIds]; coreState.query = ""; coreState.group = groupOrder.find(name => fields(material).some(field => group(field) === name)) || groupOrder[0]; fieldSearch.value = ""; modal.hidden = false; document.body.classList.add("modal-open"); renderDialog(); fieldSearch.focus(); }
-  function closeDialog() { modal.hidden = true; coreState.draftIds = null; coreState.query = ""; document.body.classList.remove("modal-open"); }
+  function openDialog(trigger) { const material = currentModel(); if (!material) return; coreState.lastFocused = trigger; loadFields(); coreState.draftIds = [...coreState.visibleIds]; coreState.query = ""; coreState.group = groupOrder.find(name => fields(material).some(field => group(field) === name)) || groupOrder[0]; fieldSearch.value = ""; modal.hidden = false; document.body.classList.add("modal-open"); renderDialog(); fieldSearch.focus(); }
+  function closeDialog() { modal.hidden = true; coreState.draftIds = null; coreState.query = ""; document.body.classList.remove("modal-open"); coreState.lastFocused?.focus(); }
   function confirmDialog() { coreState.visibleIds = orderedIds(coreState.draftIds, currentModel()); try { localStorage.setItem(storageKey, JSON.stringify(coreState.visibleIds)); } catch (_) {} closeDialog(); renderAllCards(); }
   function copyText(value, button) { const done = () => { const original = button.textContent; button.textContent = "已复制"; window.setTimeout(() => { button.textContent = original; }, 1200); }; if (navigator.clipboard?.writeText) { navigator.clipboard.writeText(value).then(done).catch(() => {}); return; } const helper = document.createElement("textarea"); helper.value = value; helper.setAttribute("readonly", ""); helper.style.position = "fixed"; helper.style.opacity = "0"; document.body.appendChild(helper); helper.select(); try { if (document.execCommand("copy")) done(); } finally { helper.remove(); } }
   function formulaColor(formula, id) { const index = (formula.labels || []).findIndex(item => item.id === id || (item.secondary || []).some(child => child.id === id)); return formulaColors[(index < 0 ? 0 : index) % formulaColors.length]; }
@@ -407,7 +504,7 @@ _DETAIL_SCRIPT = """
   }
   function renderAllCards() { document.querySelectorAll("[data-card]").forEach(card => { const material = singleModels[card.dataset.card]; if (!material) return; renderCore(card, material); renderFormula(card, material); }); }
   document.addEventListener("click", event => {
-    const button = event.target.closest("[data-open-core-fields]"); if (button) { openDialog(); return; }
+    const button = event.target.closest("[data-open-core-fields]"); if (button) { openDialog(button); return; }
     const formulaButton = event.target.closest("[data-formula-id]"); if (formulaButton) { const card = formulaButton.closest("[data-card]"), material = singleModels[card?.dataset.card]; if (material) selectFormula(card, material, formulaButton.dataset.formulaId); return; }
     const copyFormula = event.target.closest("[data-copy-formula]"); if (copyFormula) { const material = singleModels[copyFormula.closest("[data-card]")?.dataset.card], value = (material?.formula?.labels || []).flatMap(item => (item.secondary || []).map(child => child.label)).join(" + "); copyText(value || "暂无内容公式", copyFormula); return; }
     const copySource = event.target.closest("[data-copy-source]"); if (copySource) { const material = singleModels[copySource.closest("[data-card]")?.dataset.card], value = material?.formula?.sources?.[copySource.dataset.copySource]?.text || ""; copyText(value, copySource); }
@@ -426,13 +523,15 @@ def render_script_report_html(report: dict) -> str:
     rows = report["rows"]
     detail_rows = [(index, row) for index, row in enumerate(rows) if row["sourcePaths"]]
     detail_indexes = {row["materialId"]: index for index, row in detail_rows}
-    columns = _metric_columns(rows)
+    leaderboard_fields = _leaderboard_fields(rows)
+    columns = [field for field in leaderboard_fields if field["id"] != "title"]
     selection = report.get("selection") or {}
     counts = report["counts"]
     formula_overview = report.get("scriptFormulaOverview")
     if not isinstance(formula_overview, dict):
         formula_overview = _formula_overview([row for _, row in detail_rows])
     formula_total = formula_overview.get("coverage", {}).get("formulaMaterialCount", 0)
+    brand_overview = report.get("brandOverview") or {"status": "unavailable", "tabs": [], "materialIdsByTab": {}, "views": {}}
     single_models = {str(index): {"core": _single_core(row), "formula": _single_formula(row)}
                      for index, row in detail_rows}
     quotes = _quotes(detail_rows)
@@ -467,41 +566,43 @@ def render_script_report_html(report: dict) -> str:
         ("脚本素材数 TopN", selection.get("targetTopN")),
         ("平台品牌范围", "指定品牌" if selection.get("brandScope") == "SPECIFIED_BRANDS" else "全行业"),
         ("指定品牌", "、".join(selection.get("brands") or []) if selection.get("brandScope") == "SPECIFIED_BRANDS" else "不适用"),
-        ("本地筛选条件", json.dumps(material_list.get("filters"), ensure_ascii=False) if material_list.get("filters") else "无"),
-        ("本地排序", json.dumps(material_list.get("sort"), ensure_ascii=False) if material_list.get("sort") else "未提供"),
+        ("本地筛选条件", json.dumps(material_list.get("filters"), ensure_ascii=False, sort_keys=True) if material_list.get("filters") else "无"),
+        ("本地排序", json.dumps(material_list.get("sort"), ensure_ascii=False, sort_keys=True) if material_list.get("sort") else "未提供"),
     ]
     for label, value in context:
         parts.append('<div><dt>' + label + '</dt><dd>' + _e(value) + '</dd></div>')
     parts.append('</dl><p class="source-note">榜单保留平台返回的完整结果；本地筛选条件另列，不会按标题品牌词自动删除素材。')
-    unmatched = selection.get("titleBrandUnmatchedCount")
-    if isinstance(unmatched, int):
+    unknown = next((tab["count"] for tab in brand_overview.get("tabs", []) if tab.get("id") == "unknown"), 0)
+    if brand_overview.get("status") == "available":
+        parts.append('本轮标题规则分类已按已核验素材 ID 关联：' + str(unknown) + ' 条未分类；该分类不是平台权威品牌归属。')
+    elif isinstance(selection.get("titleBrandUnmatchedCount"), int):
+        unmatched = selection["titleBrandUnmatchedCount"]
         parts.append('本轮 ' + str(unmatched) + ' 条榜单标题未出现指定品牌名；这只是标题文本核对，不等于品牌归属判定。')
-    parts.append('</p></section><section id="materials-panel" data-panel="materials"><div class="toolbar" id="report-controls" hidden><input id="material-search" type="search" placeholder="输入素材标题或 ID" aria-label="搜索素材标题或 ID"><details><summary>自定义指标</summary><div class="metric-picker">')
+    parts.append('</p></section><section id="materials-panel" data-panel="materials"><div class="brand-tabs" data-brand-tabs="materials" role="tablist" aria-label="素材榜单品牌筛选"></div><p class="source-note">品牌按本轮标题规则分类；可同时命中多个品牌，和平台请求品牌范围不是同一口径。</p><div class="toolbar" id="report-controls" hidden><input id="material-search" type="search" placeholder="输入素材标题或 ID" aria-label="搜索素材标题或 ID"><button id="field-button" type="button">自定义指标</button></div>')
+    parts.append('<section id="field-management" class="field-modal" role="dialog" aria-modal="true" aria-labelledby="field-management-title" hidden><div class="field-modal-backdrop" data-field-action="cancel"></div><div class="field-modal-panel"><header class="field-modal-header"><div><h2 id="field-management-title">自定义指标</h2><p>选择后按固定字段分组顺序呈现表格列</p></div><button class="field-modal-close" type="button" data-field-action="cancel" aria-label="关闭自定义指标">×</button></header><div class="field-modal-body"><nav id="field-groups" class="field-modal-groups" aria-label="字段分组"></nav><section class="field-modal-main" aria-label="可选指标"><div class="field-modal-search"><input id="field-search" type="search" placeholder="搜索指标" aria-label="搜索指标"></div><div id="field-options" class="field-options"></div></section><aside class="field-modal-selected" aria-label="已选择指标"><div class="field-modal-selected-header"><div><strong>已选择</strong> <span id="selected-count"></span></div><button type="button" data-field-action="reset">重置</button></div><ol id="selected-fields" class="field-modal-selected-list"></ol></aside></div><footer class="field-modal-footer"><p>视频标题为固定列，素材 ID 显示在标题下方</p><div class="field-modal-footer-actions"><button type="button" data-field-action="cancel">取消</button><button class="primary" type="button" data-field-action="confirm">确定</button></div></footer></div></section>')
+    parts.append('<p class="count-note" id="visible-count">共 ' + str(len(rows)) + ' 条</p><div class="table-wrap"><table aria-label="素材榜单"><thead><tr><th class="material-name-column" scope="col">素材名称</th>')
     for column in columns:
-        parts.append('<label><input type="checkbox" data-metric-choice="' + _e(column["key"]) + '">' + _e(column["label"]) + '</label>')
-    if not columns:
-        parts.append('<p class="muted">本次榜单未返回指标。</p>')
-    parts.append('</div></details></div><p class="count-note" id="visible-count">共 ' + str(len(rows)) + ' 条</p><div class="table-wrap"><table aria-label="素材榜单"><thead><tr><th class="material-name-column" scope="col">素材名称</th>')
-    for column in columns:
-        parts.append('<th scope="col" data-col="' + _e(column["key"]) + '"><button type="button" data-sort="' + _e(column["key"]) + '">' + _e(column["label"]) + '<span></span></button></th>')
+        parts.append('<th scope="col" data-col="' + _e(column["id"]) + '"><button type="button" data-sort="' + _e(column["id"]) + '">' + _e(column["label"]) + '<span></span></button></th>')
     parts.append('</tr></thead><tbody id="material-rows">')
     for index, row in enumerate(rows):
         title = row["title"] or "素材名称未提供"
         material_id = row["materialId"]
-        parts.append('<tr data-row="' + str(index) + '" data-search="' + _e(title + " " + material_id) + '"><td class="material-name-column">')
+        parts.append('<tr data-row="' + str(index) + '" data-material-id="' + _e(material_id) + '" data-search="' + _e(title + " " + material_id) + '"><td class="material-name-column">')
         if material_id in detail_indexes:
             parts.append('<a class="material-title" href="#material-' + str(index) + '" data-open="' + str(index) + '" title="' + _e(title) + '">' + _e(title) + '</a>')
         else:
             parts.append('<span class="material-title" title="' + _e(title) + '">' + _e(title) + '</span>')
         parts.append('<div class="material-id">素材 ID：' + _e(material_id) + '</div></td>')
-        metrics = row.get("metrics") or {}
         for column in columns:
-            value = metrics.get(column["key"])
-            numeric = str(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else ""
-            parts.append('<td data-metric="' + _e(column["key"]) + '" data-value="' + _e(numeric) + '">' + _e(value) + '</td>')
+            value = _row_field_value(row, column["id"])
+            sortable = "" if value is None or value == "" or isinstance(value, (dict, list, bool)) else str(value)
+            display = "、".join(map(str, value)) if isinstance(value, list) else _display_metric(value, column["kind"])
+            if column["kind"] == "date" and isinstance(value, str) and len(value) == 8 and value.isdigit():
+                display = f"{value[:4]}-{value[4:6]}-{value[6:]}"
+            parts.append('<td data-field-cell="' + _e(column["id"]) + '" data-sort-value="' + escape(sortable, quote=True) + '">' + _e(display) + '</td>')
         parts.append('</tr>')
     parts.append('</tbody></table></div><div class="empty" id="no-results" hidden>没有匹配素材。</div><div class="pager" id="table-pager" hidden><span id="table-range"></span><div><button type="button" id="previous-page">上一页</button><span id="page-number"></span><button type="button" id="next-page">下一页</button></div></div></section>')
-    parts.append('<section id="scripts-panel" data-panel="scripts" class="script-section"><div class="panel"><h2>脚本内容公式</h2><p class="muted">' + str(formula_total) + ' 个素材有可读公式标签；按素材去重计数，仅统计平台事实中的显式可读标签，转写文本不推断公式。</p></div><div class="panel"><div class="script-card-header"><h3>一级内容公式</h3><span class="script-card-hint">点击一级内容公式柱状图可以显示二级内容公式分布</span></div><div id="script-formula-chart" class="chart-box"></div></div><div id="script-formula-secondary-card" class="panel" hidden><div class="script-card-header"><h3 id="script-formula-secondary-title">二级内容公式分布</h3><button id="script-formula-secondary-back" type="button">收起二级内容公式</button></div><div class="script-formula-donut"><div id="script-formula-secondary-chart" class="chart-box"></div><div id="script-formula-secondary-legend" class="legend" aria-label="二级内容公式图例"></div></div></div>')
+    parts.append('<section id="scripts-panel" data-panel="scripts" class="script-section"><div class="brand-tabs" data-brand-tabs="scripts" role="tablist" aria-label="脚本内容公式品牌筛选"></div><div class="panel"><h2>脚本内容公式</h2><p class="muted"><span id="script-formula-total">' + str(formula_total) + '</span> 个素材有可读公式标签；按素材去重计数，仅统计平台事实中的显式可读标签，转写文本不推断公式。品牌按本轮标题规则分类。</p></div><div class="panel"><div class="script-card-header"><h3>一级内容公式</h3><span class="script-card-hint">点击一级内容公式柱状图可以显示二级内容公式分布</span></div><div id="script-formula-chart" class="chart-box"></div></div><div id="script-formula-secondary-card" class="panel" hidden><div class="script-card-header"><h3 id="script-formula-secondary-title">二级内容公式分布</h3><button id="script-formula-secondary-back" type="button">收起二级内容公式</button></div><div class="script-formula-donut"><div id="script-formula-secondary-chart" class="chart-box"></div><div id="script-formula-secondary-legend" class="legend" aria-label="二级内容公式图例"></div></div></div>')
     if formula_overview.get("primaryBuckets"):
         parts.append('<noscript><div class="panel"><h3>公式标签覆盖素材数</h3><ul>')
         for bucket in formula_overview["primaryBuckets"]:
@@ -548,8 +649,12 @@ def render_script_report_html(report: dict) -> str:
         parts.append('<div class="panel empty">没有可核对的原句片段；完整脚本可在“单素材脚本”中查看。</div>')
     parts.append('</div></section><p class="footer">云图素材脚本数据 · 指标按本次取数口径展示；脚本与指标的关联不代表因果结论。用户提出分析问题后才进入第二阶段。</p></main><div id="chart-tooltip" class="chart-tooltip" hidden></div><script id="report-ui-data" type="application/json">')
     parts.append(json.dumps({"runId": report.get("runId"), "schemaVersion": report.get("schemaVersion", 1),
-                             "scriptFormulaOverview": formula_overview, "singleModels": single_models},
-                            ensure_ascii=False).replace("<", "\\u003c"))
+                             "scriptFormulaOverview": formula_overview, "brandOverview": brand_overview,
+                             "leaderboardFields": leaderboard_fields,
+                             "defaultFieldIds": [field_id for field_id in _DEFAULT_FIELD_IDS
+                                                 if field_id in {field["id"] for field in leaderboard_fields}],
+                             "singleModels": single_models},
+                            ensure_ascii=False, sort_keys=True).replace("<", "\\u003c"))
     parts.append('</script><script>')
     parts.append(_SCRIPT)
     parts.append(_DETAIL_SCRIPT)

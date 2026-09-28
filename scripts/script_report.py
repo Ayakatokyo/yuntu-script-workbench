@@ -10,10 +10,14 @@ import os
 
 try:
     from script_report_html import _formula_overview, render_script_report_html
+    from brand_dimension import BrandDimensionError, build_brand_dimension
+    from script_formula_overview import ScriptFormulaOverviewError, build_script_formula_overview
     from material_field_registry import default_material_field_registry
     from single_material_overview import _merge_detail_rate_metrics, _project_core, _project_formula
 except ImportError:
     from .script_report_html import _formula_overview, render_script_report_html
+    from .brand_dimension import BrandDimensionError, build_brand_dimension
+    from .script_formula_overview import ScriptFormulaOverviewError, build_script_formula_overview
     from .material_field_registry import default_material_field_registry
     from .single_material_overview import _merge_detail_rate_metrics, _project_core, _project_formula
 
@@ -86,6 +90,9 @@ def write_script_report(run_dir: Path) -> dict:
             "rank": ranking.get("rank"),
             "title": ranking.get("title") or detail.get("title") or "",
             "publishTime": ranking.get("publish_time"),
+            "videoDuration": ranking.get("video_duration"),
+            "materialUri": ranking.get("material_uri"),
+            "materialTags": ranking.get("material_tags"),
             "metrics": ranking.get("metrics", {}),
             "core": _project_core(core_record, registry) if detail else None,
             "formula": _project_formula(detail) if detail else None,
@@ -101,6 +108,32 @@ def write_script_report(run_dir: Path) -> dict:
     for material_id, detail in detail_by_id.items():
         if material_id not in {row["materialId"] for row in rows}:
             raise ScriptReportError(f"detail_not_in_ranking:{material_id}")
+    try:
+        brand_overview = build_brand_dimension(root)
+    except BrandDimensionError:
+        brand_overview = {"schemaVersion": 1, "status": "unavailable", "tabs": [],
+                          "materialIdsByTab": {}, "views": {},
+                          "gaps": [{"code": "brand_dimension_unavailable"}]}
+    if brand_overview["status"] == "available":
+        ranking_ids = [row["materialId"] for row in rows]
+        classified_ids = brand_overview["materialIdsByTab"]["all"]
+        if len(ranking_ids) != len(classified_ids) or set(ranking_ids) != set(classified_ids):
+            raise ScriptReportError("brand_classification_ranking_ids_mismatch")
+        views = {}
+        for tab in brand_overview["tabs"]:
+            tab_id = tab["id"]
+            material_ids = set(brand_overview["materialIdsByTab"][tab_id])
+            if isinstance(summary.get("artifacts"), dict):
+                try:
+                    scoped_formula = build_script_formula_overview(root, material_ids)
+                except ScriptFormulaOverviewError as exc:
+                    raise ScriptReportError(f"brand_formula_unavailable:{tab_id}") from exc
+            else:
+                # Older, already hash-verified runs may lack the detail artifact index.
+                scoped_formula = _formula_overview([
+                    row for row in rows if row["materialId"] in material_ids and row["sourcePaths"]])
+            views[tab_id] = {"scriptFormulaOverview": scoped_formula}
+        brand_overview["views"] = views
     contract = summary.get("collectionContract")
     contract = contract if isinstance(contract, dict) else {}
     list_params = contract.get("listParams") or {}
@@ -119,7 +152,10 @@ def write_script_report(run_dir: Path) -> dict:
     }
     payload = {"schemaVersion": 1, "runId": manifest.get("run_id"), "counts": counts,
                "selection": selection, "rows": rows,
-               "scriptFormulaOverview": _formula_overview([row for row in rows if row["sourcePaths"]]),
+               "scriptFormulaOverview": (brand_overview["views"]["all"]["scriptFormulaOverview"]
+                                         if brand_overview["status"] == "available"
+                                         else _formula_overview([row for row in rows if row["sourcePaths"]])),
+               "brandOverview": brand_overview,
                "factsManifestSha256": _hash(manifest_path)}
     output_dir = root / "script-report"
     data_path = output_dir / "report.json"

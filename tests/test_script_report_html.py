@@ -3,7 +3,7 @@
 import json
 import re
 
-from scripts.script_report_html import render_script_report_html
+from scripts.script_report_html import _metric_columns, render_script_report_html
 
 
 def _row(material_id, *, title, script="", formula=None, detail=True):
@@ -15,6 +15,30 @@ def _row(material_id, *, title, script="", formula=None, detail=True):
         "contentFormula": formula, "creativeBreakdown": None,
         "sourcePaths": {"normalized": "detail.json"} if detail else {},
     }
+
+
+def test_metric_columns_keep_registry_order_after_json_key_sorting():
+    rows = [{"metrics": {"unknown_z": 1, "ctr": 2, "show_cnt": 3, "unknown_a": 4}},
+            {"metrics": {"pvr": 5, "ctr": 6}}]
+    persisted = json.loads(json.dumps(rows, sort_keys=True))
+    expected = ["show_cnt", "ctr", "pvr", "unknown_a", "unknown_z"]
+    assert [item["key"] for item in _metric_columns(rows)] == expected
+    assert _metric_columns(rows) == _metric_columns(persisted)
+
+
+def test_html_is_identical_after_report_json_key_sorting():
+    row = _row("1", title="第一条", script="甲乙", formula={
+        "labels": [], "sources": {"script": {"detail": {"b": ["乙"], "a": ["甲"]}}},
+    })
+    row["metrics"] = {"ctr": 0.2, "show_cnt": 100}
+    report = {
+        "runId": "fixture",
+        "counts": {"ranking": 1, "detail": 1, "platform": 1, "agent_audio": 0, "unavailable": 0},
+        "selection": {"materialList": {"sort": {"field": "rank", "direction": "asc"}}},
+        "rows": [row],
+    }
+    persisted = json.loads(json.dumps(report, ensure_ascii=False, sort_keys=True))
+    assert render_script_report_html(report) == render_script_report_html(persisted)
 
 
 def test_fixed_five_sections_and_full_leaderboard_with_sparse_details():
@@ -113,3 +137,28 @@ def test_brand_scope_is_disclosed_without_treating_title_match_as_brand_truth():
     assert "小仙炖、燕之屋、五个女博士" in html
     assert "1 条榜单标题未出现指定品牌名" in html
     assert "不等于品牌归属判定" in html
+
+
+def test_leaderboard_uses_meta_field_defaults_and_a_modal_without_new_pages():
+    row = _row("1", title="第一条", detail=False)
+    row.update({"publishTime": "20260928", "videoDuration": 18, "materialTags": ["演示标签"]})
+    row["metrics"].update({"play_3s_rate": 0.4, "play_over_rate": 0.2,
+                           "play_duration_avg": 7, "cvr": 0.1, "pvr": 0.05,
+                           "interact_rate": 0.3})
+    report = {"runId": "fixture", "counts": {"ranking": 1, "detail": 0, "platform": 0,
+                                             "agent_audio": 0, "unavailable": 0}, "rows": [row]}
+    html = render_script_report_html(report)
+    embedded = json.loads(re.search(r'<script id="report-ui-data" type="application/json">(.*?)</script>', html).group(1))
+    expected = {"title", "publish_time", "metrics.show_cnt", "metrics.play_3s_rate",
+                "metrics.play_over_rate", "metrics.play_duration_avg", "metrics.ctr",
+                "metrics.cvr", "metrics.pvr", "metrics.interact_rate"}
+    assert set(embedded["defaultFieldIds"]) == expected
+    assert embedded["defaultFieldIds"] == ["title", "publish_time", "metrics.show_cnt",
+                                           "metrics.play_3s_rate", "metrics.play_over_rate",
+                                           "metrics.play_duration_avg", "metrics.ctr", "metrics.cvr",
+                                           "metrics.pvr", "metrics.interact_rate"]
+    assert html.count('data-brand-tabs="') == 2
+    assert len(re.findall(r'<a [^>]*data-section=', html)) == 5
+    assert 'id="field-management"' in html and 'id="field-groups"' in html
+    assert 'id="selected-fields"' in html and 'data-field-action="confirm"' in html
+    assert 'data-metric-choice' not in html
