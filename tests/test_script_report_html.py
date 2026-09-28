@@ -1,5 +1,8 @@
 """The offline report must stay faithful to its source facts and fixed layout."""
 
+import json
+import re
+
 from scripts.script_report_html import render_script_report_html
 
 
@@ -38,9 +41,9 @@ def test_fixed_five_sections_and_full_leaderboard_with_sparse_details():
 
 def test_formula_and_quote_require_readable_labels_and_exact_script_match():
     formula = {
-        "labels": [{"level_1_label": {"id": 1, "label": "开场"},
-                    "level_2_labels": [{"id": 2, "label": "提问"}]}],
-        "sources": {"script": {"detail": {"2": ["今天有活动", "并未出现在正文"]}}},
+        "labels": [{"level_1_label": 9, "level_2_labels": [34]}],
+        "sources": {"script": {"text": "今天有活动，欢迎来看。",
+                               "detail": {"34": ["今天有活动", "并未出现在正文"]}}},
     }
     report = {
         "counts": {"ranking": 1, "detail": 1, "platform": 1, "agent_audio": 0, "unavailable": 0},
@@ -49,9 +52,53 @@ def test_formula_and_quote_require_readable_labels_and_exact_script_match():
     html = render_script_report_html(report)
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "<script>alert(1)</script>" not in html
-    assert "开场" in html and "提问" in html
+    assert "商品卖点" in html and "功效功能" in html
     assert html.count('data-quote>') == 1
-    assert "并未出现在正文" not in html
+    assert "<blockquote>并未出现在正文</blockquote>" not in html
+    assert 'id="script-formula-chart"' in html
+    assert 'id="script-formula-secondary-chart"' in html
+    assert 'id="script-formula-secondary-legend"' in html
+    assert 'id="single-core-field-management"' in html
+    assert 'data-single-formula' in html
+
+
+def test_formula_counts_materials_once_and_core_keeps_default_missing_fields():
+    formula = {
+        "labels": [{"level_1_label": 9, "level_2_labels": [34, 34]},
+                   {"level_1_label": 9, "level_2_labels": [34]}],
+        "sources": {"script": {"text": "功效功能", "detail": {"34": ["功效功能"]}}},
+    }
+    rows = [_row("1", title="第一条", script="功效功能", formula=formula),
+            _row("2", title="第二条", script="功效功能", formula=formula)]
+    html = render_script_report_html({
+        "runId": "fixture", "counts": {"ranking": 2, "detail": 2, "platform": 2,
+                                         "agent_audio": 0, "unavailable": 0}, "rows": rows,
+    })
+    payload = json.loads(re.search(r'<script id="report-ui-data" type="application/json">(.*?)</script>', html).group(1))
+    overview = payload["scriptFormulaOverview"]
+    assert overview["coverage"]["formulaMaterialCount"] == 2
+    assert overview["primaryBuckets"] == [{"label": "商品卖点", "value": 2, "share": 1.0}]
+    assert overview["secondaryBucketsByPrimary"]["商品卖点"] == [{"label": "功效功能", "value": 2, "share": 1.0}]
+    core = payload["singleModels"]["0"]["core"]
+    assert len(core["defaultFieldIds"]) == 7
+    assert "metrics.play_duration_avg" not in [field["id"] for field in core["fields"]]
+    assert "3S完播率" in html and "—" in html
+
+
+def test_formula_source_text_is_safe_in_embedded_model():
+    formula = {
+        "labels": [{"level_1_label": 9, "level_2_labels": [34]}],
+        "sources": {"script": {"text": '</script><script>alert("x")</script>',
+                               "detail": {"34": ["alert"]}}},
+    }
+    html = render_script_report_html({
+        "counts": {"ranking": 1, "detail": 1, "platform": 1, "agent_audio": 0, "unavailable": 0},
+        "rows": [_row("1", title="报价\"<&>", script="真实口播", formula=formula)],
+    })
+    embedded = re.search(r'<script id="report-ui-data" type="application/json">(.*?)</script>', html).group(1)
+    assert "</script><script>alert" not in embedded
+    assert "\\u003c/script>" in embedded
+    assert json.loads(embedded)["singleModels"]["0"]["formula"]["sources"]["script"]["text"].startswith("</script>")
 
 
 def test_brand_scope_is_disclosed_without_treating_title_match_as_brand_truth():

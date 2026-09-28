@@ -9,9 +9,13 @@ import tempfile
 import os
 
 try:
-    from script_report_html import render_script_report_html
+    from script_report_html import _formula_overview, render_script_report_html
+    from material_field_registry import default_material_field_registry
+    from single_material_overview import _merge_detail_rate_metrics, _project_core, _project_formula
 except ImportError:
-    from .script_report_html import render_script_report_html
+    from .script_report_html import _formula_overview, render_script_report_html
+    from .material_field_registry import default_material_field_registry
+    from .single_material_overview import _merge_detail_rate_metrics, _project_core, _project_formula
 
 
 class ScriptReportError(ValueError):
@@ -66,6 +70,7 @@ def write_script_report(run_dir: Path) -> dict:
             raise ScriptReportError(f"fact_package_hash_mismatch:{name}")
         packages[name] = _read(path)["records"]
     detail_by_id = {str(item["material_id"]): item for item in packages["script"]}
+    registry = default_material_field_registry()
     rows = []
     counts = {"ranking": len(packages["material_ranking"]), "detail": len(detail_by_id),
               "platform": 0, "agent_audio": 0, "unavailable": 0}
@@ -75,16 +80,21 @@ def write_script_report(run_dir: Path) -> dict:
         source = detail.get("script_source", "unavailable")
         if material_id in detail_by_id:
             counts[source] += 1
+        core_record = _merge_detail_rate_metrics(root, material_id, ranking) if detail else ranking
         rows.append({
             "materialId": material_id,
             "rank": ranking.get("rank"),
             "title": ranking.get("title") or detail.get("title") or "",
+            "publishTime": ranking.get("publish_time"),
             "metrics": ranking.get("metrics", {}),
+            "core": _project_core(core_record, registry) if detail else None,
+            "formula": _project_formula(detail) if detail else None,
             "scriptSource": source,
             "scriptText": detail.get("script_text", ""),
             "platformScriptText": detail.get("platform_script_text", ""),
             "audioTranscript": detail.get("audio_transcript"),
             "contentFormula": detail.get("content_formula"),
+            "contentFormulaAvailable": detail.get("data_availability", {}).get("content_formula", {}).get("available") is True,
             "creativeBreakdown": detail.get("creative_breakdown"),
             "sourcePaths": detail.get("source_paths", {}),
         })
@@ -108,7 +118,9 @@ def write_script_report(run_dir: Path) -> dict:
                                          for row in rows) if brand_scope == "SPECIFIED_BRANDS" and brands else None),
     }
     payload = {"schemaVersion": 1, "runId": manifest.get("run_id"), "counts": counts,
-               "selection": selection, "rows": rows, "factsManifestSha256": _hash(manifest_path)}
+               "selection": selection, "rows": rows,
+               "scriptFormulaOverview": _formula_overview([row for row in rows if row["sourcePaths"]]),
+               "factsManifestSha256": _hash(manifest_path)}
     output_dir = root / "script-report"
     data_path = output_dir / "report.json"
     _write(data_path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")

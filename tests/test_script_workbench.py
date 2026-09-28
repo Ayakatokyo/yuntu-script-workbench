@@ -95,6 +95,10 @@ class ScriptWorkbenchTests(unittest.TestCase):
         receipt = write_script_report(self.root)
         self.assertEqual(receipt["counts"]["agent_audio"], 2)
         self.assertIn("燕之屋鲜炖燕窝", Path(receipt["reportPath"]).read_text())
+        report = json.loads(Path(receipt["dataPath"]).read_text(encoding="utf-8"))
+        self.assertEqual(report["scriptFormulaOverview"]["coverage"]["scriptMaterialCount"], 4)
+        self.assertEqual(len(report["rows"][0]["core"]["defaultFieldIds"]), 7)
+        self.assertEqual(report["rows"][1]["formula"]["status"], "unavailable")
         raw = self.root / "transcripts/raw" / f"{item['videoSha256']}.txt"
         raw.write_text("tampered", encoding="utf-8")
         with self.assertRaisesRegex(FactPackageError, "source hash mismatch"):
