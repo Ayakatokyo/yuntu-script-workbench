@@ -55,6 +55,21 @@ class OutputLayoutTests(unittest.TestCase):
         self.assertEqual(status, 2)
         collector.assert_not_called()
 
+    def test_failed_quality_retry_reports_nonzero_without_recollecting(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(workbench.FasterWhisperProvider, "preflight"), \
+                mock.patch.object(workbench, "transcribe_run", return_value={
+                    "counts": {"available": 1}, "qualityRetries": {
+                        "attemptedVideos": 1, "upgradedVideos": 0, "failedVideos": 1}}) as transcribe, \
+                mock.patch.object(workbench, "build_fact_packages"), \
+                mock.patch.object(workbench, "write_script_report", return_value={}), \
+                mock.patch.object(workbench, "collector_main") as collector:
+            status = workbench.main(["process-scripts", "--run-dir", temporary,
+                                     "--retry-low-memory"])
+        self.assertEqual(status, 2)
+        self.assertTrue(transcribe.call_args.kwargs["retry_low_memory"])
+        collector.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

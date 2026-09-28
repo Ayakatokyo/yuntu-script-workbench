@@ -11,7 +11,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
+import uuid
+from datetime import datetime, timezone
 
 
 class TranscriptionError(ValueError):
@@ -43,6 +46,49 @@ def _read_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise TranscriptionError(f"invalid JSON object: {path.name}")
     return value
+
+
+def _memory_snapshot() -> dict[str, int]:
+    """Read optional Linux cgroup v2 counters; absence is not zero usage."""
+    root = Path("/sys/fs/cgroup")
+    snapshot: dict[str, int] = {}
+    for filename, key in (("memory.max", "limitBytes"), ("memory.current", "currentBytes"),
+                          ("memory.peak", "peakBytes")):
+        try:
+            value = (root / filename).read_text(encoding="ascii").strip()
+            if value != "max":
+                snapshot[key] = int(value)
+        except (OSError, ValueError):
+            pass
+    try:
+        events = (root / "memory.events.local").read_text(encoding="ascii")
+        for line in events.splitlines():
+            name, value = line.split()
+            if name in {"oom", "oom_kill", "max"}:
+                snapshot[{"oom": "oomCount", "oom_kill": "oomKillCount", "max": "maxEventCount"}[name]] = int(value)
+    except (OSError, ValueError):
+        pass
+    return snapshot
+
+
+def _record_attempt(directory: Path | None, *, material_id: str | None, video_sha: str | None,
+                    profile: str, started_at: str, started_clock: float, returncode: int | None,
+                    status: str, stderr: str = "", checkpoint: dict | None = None,
+                    memory_before: dict | None = None, memory_after: dict | None = None) -> None:
+    if directory is None:
+        return
+    before, after = memory_before or {}, memory_after or {}
+    delta = (after["oomKillCount"] - before["oomKillCount"]
+             if "oomKillCount" in before and "oomKillCount" in after else None)
+    event = {"schemaVersion": 1, "materialId": material_id, "videoSha256": video_sha,
+             "profile": profile, "startedAt": started_at, "finishedAt": datetime.now(timezone.utc).isoformat(),
+             "elapsedSec": round(time.monotonic() - started_clock, 3), "status": status,
+             "exitCode": returncode, "workerCheckpoint": checkpoint, "cgroupBefore": before,
+             "cgroupAfter": after, "oomKillDelta": delta}
+    if stderr:
+        event["stderrTail"] = stderr[-1000:]
+    filename = f"{datetime.now(timezone.utc):%Y%m%dT%H%M%S%fZ}-{uuid.uuid4().hex[:8]}.json"
+    _write_json(directory / filename, event)
 
 
 def _ffmpeg_binary() -> str:
@@ -120,25 +166,61 @@ class FasterWhisperProvider:
             self._model_version = f"{self.model_dir.name}:{digest.hexdigest()}"
         return self._model_version
 
-    def transcribe(self, wav_path: Path) -> dict[str, Any]:
+    def transcribe(self, wav_path: Path, *, attempt_dir: Path | None = None,
+                   material_id: str | None = None, video_sha: str | None = None,
+                   quality_only: bool = False) -> dict[str, Any]:
         self.preflight()
         worker = Path(__file__).with_name("asr_worker.py")
         with tempfile.TemporaryDirectory(prefix="yuntu-asr-worker-") as temporary:
             output = Path(temporary) / "result.json"
-            for profile in ("quality", "memory_safe"):
+            checkpoint_path = Path(temporary) / "checkpoint.json"
+            for profile in (("quality",) if quality_only else ("quality", "memory_safe")):
+                output.unlink(missing_ok=True)
+                checkpoint_path.unlink(missing_ok=True)
+                started_at = datetime.now(timezone.utc).isoformat()
+                started_clock = time.monotonic()
+                before = _memory_snapshot()
                 try:
                     completed = subprocess.run(
                         [sys.executable, str(worker), str(wav_path), str(self.model_dir), str(output)],
-                        input=json.dumps({"profile": profile, "hotwords": self.hotwords}),
+                        input=json.dumps({"profile": profile, "hotwords": self.hotwords,
+                                          "checkpointPath": str(checkpoint_path)}),
                         capture_output=True, text=True, check=False, timeout=900,
                     )
                 except subprocess.TimeoutExpired as exc:
+                    _record_attempt(attempt_dir, material_id=material_id, video_sha=video_sha, profile=profile,
+                                    started_at=started_at, started_clock=started_clock, returncode=None,
+                                    status="timeout", checkpoint=_read_json(checkpoint_path) if checkpoint_path.is_file() else None,
+                                    memory_before=before, memory_after=_memory_snapshot())
                     raise TranscriptionError("asr_worker_timeout") from exc
+                except OSError as exc:
+                    _record_attempt(attempt_dir, material_id=material_id, video_sha=video_sha, profile=profile,
+                                    started_at=started_at, started_clock=started_clock, returncode=None,
+                                    status="launch_failed", stderr=str(exc), memory_before=before,
+                                    memory_after=_memory_snapshot())
+                    raise TranscriptionError("asr_worker_launch_failed") from exc
+                after = _memory_snapshot()
+                checkpoint = _read_json(checkpoint_path) if checkpoint_path.is_file() else None
                 if completed.returncode == 0 and output.is_file():
-                    return _read_json(output)
+                    try:
+                        result = _read_json(output)
+                    except (OSError, ValueError) as exc:
+                        _record_attempt(attempt_dir, material_id=material_id, video_sha=video_sha, profile=profile,
+                                        started_at=started_at, started_clock=started_clock, returncode=0,
+                                        status="invalid_output", checkpoint=checkpoint, memory_before=before, memory_after=after)
+                        raise TranscriptionError("asr_worker_invalid_output") from exc
+                    _record_attempt(attempt_dir, material_id=material_id, video_sha=video_sha, profile=profile,
+                                    started_at=started_at, started_clock=started_clock, returncode=0,
+                                    status="worker_completed", checkpoint=checkpoint, memory_before=before, memory_after=after)
+                    return result
+                status = "killed" if completed.returncode in {-9, 137} else "failed"
+                _record_attempt(attempt_dir, material_id=material_id, video_sha=video_sha, profile=profile,
+                                started_at=started_at, started_clock=started_clock, returncode=completed.returncode,
+                                status=status, stderr=completed.stderr, checkpoint=checkpoint,
+                                memory_before=before, memory_after=after)
                 if completed.returncode not in {-9, 137}:
                     raise TranscriptionError(f"asr_worker_failed:{completed.returncode}:{completed.stderr[-500:]}")
-            raise TranscriptionError("asr_worker_memory_limit_exceeded")
+            raise TranscriptionError("asr_quality_worker_killed" if quality_only else "asr_worker_killed_both_profiles")
 
 
 def _normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
@@ -161,7 +243,36 @@ def _normalize_result(raw: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = None) -> dict[str, Any]:
+def _check_quality_retry_cache(root: Path, detail_dir: Path, provider: Any) -> None:
+    """Avoid unexpectedly reprocessing every video when the model or hints changed."""
+    provider_name = getattr(provider, "provider_name", provider.__class__.__name__)
+    model_version = getattr(provider, "model_version", "unknown")
+    cache_key = getattr(provider, "cache_key", None)
+    for detail_path in sorted(detail_dir.glob("*.json")):
+        detail = _read_json(detail_path)
+        if str(detail.get("script_text") or "").strip():
+            continue
+        video = root / "videos" / detail_path.stem / "source-video.mp4"
+        if not video.is_file() or video.stat().st_size == 0:
+            continue
+        video_hash = _sha256(video)
+        cached = root / "asr" / "by-video" / f"{video_hash}.json"
+        if not cached.is_file():
+            raise TranscriptionError("quality_retry_requires_complete_cache")
+        result = _read_json(cached)
+        if result.get("videoSha256") != video_hash or result.get("status") not in {
+            "available", "no_speech", "no_audio_track"
+        }:
+            raise TranscriptionError("quality_retry_requires_complete_cache")
+        if result["status"] in {"available", "no_speech"} and (
+            result.get("provider") != provider_name or result.get("modelVersion") != model_version
+            or result.get("cacheKey") != cache_key
+        ):
+            raise TranscriptionError("quality_retry_model_or_hints_mismatch")
+
+
+def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = None,
+                   retry_low_memory: bool = False) -> dict[str, Any]:
     """Process only accepted details; never mutate platform facts or resubmit RPA."""
     root = Path(run_dir).resolve()
     summary_path = root / "run-summary.json"
@@ -177,8 +288,13 @@ def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = Non
     detail_dir = root / "normalized" / "detail-records"
     if not detail_dir.is_dir():
         raise TranscriptionError("detail_records_missing")
+    if retry_low_memory:
+        _check_quality_retry_cache(root, detail_dir, provider)
     verified = {item.get("path"): item.get("sha256") for item in facts.get("source_artifacts", []) if isinstance(item, dict)}
     manifest: dict[str, Any] = {"schemaVersion": 1, "materials": [], "counts": {}}
+    retry_attempted: set[str] = set()
+    retry_upgraded: set[str] = set()
+    retry_failed: dict[str, str] = {}
     for path in sorted(detail_dir.glob("*.json")):
         relative = path.relative_to(root).as_posix()
         if verified.get(relative) != _sha256(path):
@@ -198,6 +314,7 @@ def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = Non
         else:
             video_hash = _sha256(video)
             entry["videoSha256"] = video_hash
+            attempt_dir = root / "asr" / "attempts" / video_hash
             cached = root / "asr" / "by-video" / f"{video_hash}.json"
             if cached.is_file():
                 result = _read_json(cached)
@@ -211,32 +328,75 @@ def transcribe_run(run_dir: Path, *, provider: Any, ffmpeg_bin: str | None = Non
                     result = None
             else:
                 result = None
-            if result is None:
+            profile = result.get("decodeProfile") if isinstance(result, dict) else None
+            upgrade = (retry_low_memory and result is not None and result.get("status") in {"available", "no_speech"}
+                       and isinstance(profile, dict) and profile.get("name") == "memory_safe")
+            retry_error = None
+            if upgrade and video_hash in retry_failed:
+                retry_error = retry_failed[video_hash]
+            elif result is None or upgrade:
+                previous_result = result if upgrade else None
+                if upgrade:
+                    retry_attempted.add(video_hash)
                 with tempfile.TemporaryDirectory(prefix="yuntu-asr-") as temporary:
                     wav = Path(temporary) / "audio.wav"
                     audio_status = _extract_audio(video, wav, ffmpeg_bin)
                     if audio_status != "available":
-                        result = {"status": audio_status, "videoSha256": video_hash}
+                        if upgrade:
+                            retry_error = audio_status
+                        else:
+                            result = {"status": audio_status, "videoSha256": video_hash}
                     else:
                         try:
-                            normalized = _normalize_result(provider.transcribe(wav))
+                            if isinstance(provider, FasterWhisperProvider):
+                                raw = provider.transcribe(wav, attempt_dir=attempt_dir, material_id=material_id,
+                                                          video_sha=video_hash, quality_only=upgrade)
+                            else:
+                                raw = provider.transcribe(wav)
+                            normalized = _normalize_result(raw)
+                            if upgrade and previous_result.get("status") == "available" and not normalized["text"]:
+                                raise TranscriptionError("quality_retry_returned_no_speech")
                             result = {"status": "available" if normalized["text"] else "no_speech",
                                       "videoSha256": video_hash, "audioSha256": _sha256(wav),
                                       "provider": getattr(provider, "provider_name", provider.__class__.__name__),
                                       "modelVersion": getattr(provider, "model_version", "unknown"),
                                       "cacheKey": getattr(provider, "cache_key", None), **normalized}
                         except Exception as exc:
-                            result = {"status": "transcription_failed", "videoSha256": video_hash,
-                                      "error": f"{type(exc).__name__}: {exc}"}
-                if result["status"] in {"available", "no_speech", "no_audio_track"}:
+                            if upgrade:
+                                retry_error = f"{type(exc).__name__}: {exc}"
+                            else:
+                                result = {"status": "transcription_failed", "videoSha256": video_hash,
+                                          "error": f"{type(exc).__name__}: {exc}"}
+                if upgrade and retry_error:
+                    result = previous_result
+                    retry_failed[video_hash] = retry_error
+                elif upgrade:
+                    retry_upgraded.add(video_hash)
+                if retry_error is None and result["status"] in {"available", "no_speech", "no_audio_track"}:
                     _write_json(cached, result)
             material_path = root / "asr" / "materials" / f"{material_id}.json"
             material_result = {**result, "materialId": material_id, "videoPath": entry["videoPath"]}
+            if attempt_dir.is_dir():
+                attempt_path = attempt_dir.relative_to(root).as_posix()
+                material_result["attemptsPath"] = attempt_path
+                entry["attemptsPath"] = attempt_path
+                attempts = [{"path": item.relative_to(root).as_posix(), "sha256": _sha256(item)}
+                            for item in sorted(attempt_dir.glob("*.json"))]
+                material_result["attempts"] = attempts
+                entry["attempts"] = attempts
+            if upgrade:
+                entry["qualityRetryStatus"] = "failed" if retry_error else "upgraded"
+                material_result["qualityRetryStatus"] = entry["qualityRetryStatus"]
+                if retry_error:
+                    material_result["qualityRetryError"] = retry_error
             _write_json(material_path, material_result)
             entry["status"] = result["status"]
             entry["asrPath"] = f"asr/materials/{material_id}.json"
             entry["asrSha256"] = _sha256(material_path)
         manifest["materials"].append(entry)
         manifest["counts"][entry["status"]] = manifest["counts"].get(entry["status"], 0) + 1
+    if retry_low_memory:
+        manifest["qualityRetries"] = {"attemptedVideos": len(retry_attempted), "upgradedVideos": len(retry_upgraded),
+                                      "failedVideos": len(retry_failed)}
     _write_json(root / "asr" / "manifest.json", manifest)
     return manifest

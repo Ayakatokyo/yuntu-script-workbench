@@ -18,13 +18,17 @@ python "$SKILL_ROOT/scripts/run.py" validate --query-spec "$QUERY_SPEC"
 python "$SKILL_ROOT/scripts/run.py" acquire --shop-id "$AUTHORIZED_SHOP_ID" --query-spec "$QUERY_SPEC" --model-dir "$LOCAL_ASR_MODEL_DIR"
 # 已获可信云图运行目录可从本地加工，不再提交 RPA
 python "$SKILL_ROOT/scripts/run.py" process-scripts --run-dir "$RUN_DIR" --model-dir "$LOCAL_ASR_MODEL_DIR"
+# 在资源更充足的环境中，仅对缓存的低内存口径结果尝试高质量重转写
+python "$SKILL_ROOT/scripts/run.py" process-scripts --run-dir "$RUN_DIR" --model-dir "$LOCAL_ASR_MODEL_DIR" --retry-low-memory
 python "$SKILL_ROOT/scripts/run.py" render-script-report --run-dir "$RUN_DIR"
 python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR"
 ```
 
 `--model-dir` 可由 `YUNTU_ASR_MODEL_DIR` 提供；模型和 ASR 依赖须已在目标环境本地就绪。`acquire` 在提交 RPA 前检查模型、依赖与 ffmpeg。缺模型会立即报错；媒体处理或转写失败会保留原事实并在 `asr/manifest.json` 和报告中显示，组合入口返回非零状态 2；修复环境后只重跑 `process-scripts`。有效平台脚本不触发 ASR；相同视频 SHA 在本次运行内只转写一次。无音轨、无语音、视频缺失、解码失败和转写失败分状态记录。ASR 只代表音轨中的可识别语音，不能补画面字幕或包装文字。
 
-ASR 将音轨切成 20 秒片段，在独立进程逐片转写；默认 `int8`、CPU 双线程、beam 5。若子进程被内存限制杀死，自动以 beam 1 和 VAD 重试该视频，不中断其余素材，并在转写事实中记录实际 `decodeProfile`。可通过 `--asr-hotwords '燕之屋,产品名'` 提供已知品牌和产品词以改善专有名词识别；用相同参数执行离线重试，改词后旧结果不复用。此提示不能保证识别正确，关键口播仍应人工核对。模型加载本身仍需内存，内存限制低于模型运行需求时会标记 `transcription_failed`，应换更小模型或提高执行环境内存，而不把缺失结果当成功脚本。
+ASR 将音轨切成 20 秒片段，在独立进程逐片转写；默认 `int8`、CPU 双线程、beam 5。若子进程返回 `-9/137`，自动以 beam 1 和 VAD 重试该视频，不中断其余素材，并在转写事实中记录实际 `decodeProfile`。可通过 `--asr-hotwords '燕之屋,产品名'` 提供已知品牌和产品词以改善专有名词识别；用相同参数执行离线重试，改词后旧结果不复用。此提示不能保证识别正确，关键口播仍应人工核对。模型加载本身仍需内存，两档都失败时标记 `transcription_failed`；需结合尝试记录判断原因，而不把缺失结果当成功脚本。
+
+每次 ASR 子进程尝试会在 `asr/attempts/<视频SHA>/` 保存独立 JSON，记录档位、退出码、耗时、最后完成的步骤和可获取的进程/cgroup 内存证据；素材转写文件与清单绑定这些记录的 SHA。`-9/137` 只说明子进程异常退出，需结合 cgroup `oom_kill` 变化判断是否为内存原因。`--retry-low-memory` 要求当前运行的成功缓存齐全且模型、提示词与原运行一致；预检不通过时直接拒绝，不会意外重转写所有素材。它只对 `memory_safe` 缓存增加一次仅 `quality` 的离线重试；失败时保留原脚本、返回非零状态并记录失败，不重新提交 RPA。
 
 可用 `--output-root` 指定其他数据根目录；需要对已有运行目录续跑时使用 `--output-dir` 指定原目录。两者互斥，且运行数据目录不能位于技能安装目录内。报告入口为 `RUN_DIR/script-report/index.html`，原始采集、视频、转写与报告均留在同一 `RUN_DIR`。
 

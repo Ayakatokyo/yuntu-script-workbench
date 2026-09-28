@@ -54,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         if args[0] == "process-scripts":
             parser.add_argument("--model-dir", default=os.environ.get("YUNTU_ASR_MODEL_DIR"))
             parser.add_argument("--asr-hotwords", default="", help="optional brand/product terms to guide ASR (max 256 characters)")
+            parser.add_argument("--retry-low-memory", action="store_true",
+                                help="retry cached memory_safe transcripts in quality mode; preserve old text on failure")
     parsed = parser.parse_args(args[1:])
     try:
         if args[0] == "acquire":
@@ -72,15 +74,18 @@ def main(argv: list[str] | None = None) -> int:
             model_dir = Path(parsed.model_dir) if args[0] == "process-scripts" and parsed.model_dir else None
             provider = FasterWhisperProvider(model_dir, hotwords=parsed.asr_hotwords) if args[0] == "process-scripts" else None
         processing_counts = {}
+        manifest = {}
         if args[0] != "render-script-report":
             provider.preflight()
-            manifest = transcribe_run(run_dir, provider=provider)
+            manifest = transcribe_run(run_dir, provider=provider,
+                                      retry_low_memory=args[0] == "process-scripts" and parsed.retry_low_memory)
             processing_counts = manifest["counts"]
-            print(json.dumps({"transcription": processing_counts}, ensure_ascii=False))
+            print(json.dumps({"transcription": processing_counts,
+                              "qualityRetries": manifest.get("qualityRetries")}, ensure_ascii=False))
             build_fact_packages(run_dir)
         receipt = write_script_report(run_dir)
         print(json.dumps(receipt, ensure_ascii=False, indent=2))
-        return 2 if any(processing_counts.get(state) for state in (
+        return 2 if manifest.get("qualityRetries", {}).get("failedVideos", 0) or any(processing_counts.get(state) for state in (
             "transcription_failed", "audio_decode_failed", "audio_timeout", "ffmpeg_unavailable", "audio_empty"
         )) else 0
     except (TranscriptionError, FactPackageError, ScriptReportError, RuntimePathError, OSError, ValueError) as exc:

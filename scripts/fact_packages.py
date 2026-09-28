@@ -242,6 +242,17 @@ def _script_payload(root: Path, details: dict[str, dict], classifications: dict[
             raise FactPackageError(f"ASR receipt hash mismatch: {material_id}")
         if asr is not None and str(asr.get("materialId")) != material_id:
             raise FactPackageError(f"ASR material identity mismatch: {material_id}")
+        if asr is not None and asr.get("attempts"):
+            attempts = asr["attempts"]
+            if not isinstance(attempts, list) or attempts != asr_entries.get(material_id, {}).get("attempts"):
+                raise FactPackageError(f"ASR attempt receipt mismatch: {material_id}")
+            for attempt in attempts:
+                relative = attempt.get("path") if isinstance(attempt, dict) else None
+                if not isinstance(relative, str) or not relative.startswith("asr/attempts/"):
+                    raise FactPackageError(f"ASR attempt path invalid: {material_id}")
+                attempt_path = (root / relative).resolve()
+                if not attempt_path.is_relative_to(root.resolve()) or not attempt_path.is_file() or _sha256(attempt_path) != attempt.get("sha256"):
+                    raise FactPackageError(f"ASR attempt hash mismatch: {material_id}")
         if asr is not None and asr.get("status") == "available":
             video_path = root / "videos" / material_id / "source-video.mp4"
             if not video_path.is_file() or _sha256(video_path) != asr.get("videoSha256"):
@@ -338,6 +349,7 @@ def _source_artifacts(root: Path, details: dict[str, dict]) -> list[dict]:
     candidates.append(root / "highlights-manifest.json")
     candidates.append(root / "asr" / "manifest.json")
     candidates.extend((root / "asr" / "materials").glob("*.json"))
+    candidates.extend((root / "asr" / "attempts").glob("*/*.json"))
     candidates.extend(root / "videos" / mid / "source-video.mp4" for mid in sorted(details)
                       if (root / "asr" / "materials" / f"{mid}.json").is_file())
     artifacts = []
