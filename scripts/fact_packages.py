@@ -224,9 +224,9 @@ def _audience_payload(root: Path, records: list[dict], classifications: dict[str
 
 def _script_payload(root: Path, details: dict[str, dict], classifications: dict[str, dict], brands: list[str]) -> dict:
     records = []
-    asr_manifest_path = root / "asr" / "manifest.json"
-    asr_manifest = _read_json(asr_manifest_path, "ASR manifest") if asr_manifest_path.is_file() else {}
-    asr_entries = {str(item.get("materialId")): item for item in asr_manifest.get("materials", []) if isinstance(item, dict)}
+    transcript_manifest_path = root / "transcripts" / "manifest.json"
+    transcript_manifest = _read_json(transcript_manifest_path, "transcript manifest") if transcript_manifest_path.is_file() else {}
+    transcript_entries = {str(item.get("materialId")): item for item in transcript_manifest.get("materials", []) if isinstance(item, dict)}
     for material_id in sorted(details):
         detail = details[material_id]
         detail_source = detail.get("source_paths", {}).get(
@@ -235,43 +235,39 @@ def _script_payload(root: Path, details: dict[str, dict], classifications: dict[
         availability = detail.get("data_availability", {})
         classification = classifications.get(material_id, classify_brand("", brands=brands))
         platform_text = str(detail.get("script_text") or "")
-        asr_path = root / "asr" / "materials" / f"{material_id}.json"
-        asr = _read_json(asr_path, "ASR transcript") if asr_path.is_file() else None
-        if asr is not None and (asr_entries.get(material_id, {}).get("asrPath") != f"asr/materials/{material_id}.json"
-                                or asr_entries[material_id].get("asrSha256") != _sha256(asr_path)):
-            raise FactPackageError(f"ASR receipt hash mismatch: {material_id}")
-        if asr is not None and str(asr.get("materialId")) != material_id:
-            raise FactPackageError(f"ASR material identity mismatch: {material_id}")
-        if asr is not None and asr.get("attempts"):
-            attempts = asr["attempts"]
-            if not isinstance(attempts, list) or attempts != asr_entries.get(material_id, {}).get("attempts"):
-                raise FactPackageError(f"ASR attempt receipt mismatch: {material_id}")
-            for attempt in attempts:
-                relative = attempt.get("path") if isinstance(attempt, dict) else None
-                if not isinstance(relative, str) or not relative.startswith("asr/attempts/"):
-                    raise FactPackageError(f"ASR attempt path invalid: {material_id}")
-                attempt_path = (root / relative).resolve()
-                if not attempt_path.is_relative_to(root.resolve()) or not attempt_path.is_file() or _sha256(attempt_path) != attempt.get("sha256"):
-                    raise FactPackageError(f"ASR attempt hash mismatch: {material_id}")
-        if asr is not None and asr.get("status") == "available":
+        transcript_path = root / "transcripts" / "materials" / f"{material_id}.json"
+        transcript = _read_json(transcript_path, "agent transcript") if transcript_path.is_file() else None
+        entry = transcript_entries.get(material_id, {})
+        if transcript is not None and (entry.get("transcriptPath") != f"transcripts/materials/{material_id}.json"
+                                       or entry.get("transcriptSha256") != _sha256(transcript_path)):
+            raise FactPackageError(f"transcript receipt hash mismatch: {material_id}")
+        if transcript is not None and str(transcript.get("materialId")) != material_id:
+            raise FactPackageError(f"transcript material identity mismatch: {material_id}")
+        if transcript is not None and transcript.get("status") == "available":
             video_path = root / "videos" / material_id / "source-video.mp4"
-            if not video_path.is_file() or _sha256(video_path) != asr.get("videoSha256"):
-                raise FactPackageError(f"ASR source video hash mismatch: {material_id}")
-        asr_text = str(asr.get("text") or "") if asr and asr.get("status") == "available" else ""
-        script_text = platform_text or asr_text
-        script_source = "platform" if platform_text else "asr" if asr_text else "unavailable"
+            raw_path = root / "transcripts" / "raw" / f"{transcript.get('videoSha256')}.txt"
+            audio_path = root / "audio" / "by-video" / f"{transcript.get('videoSha256')}.wav"
+            by_video_path = root / "transcripts" / "by-video" / f"{transcript.get('videoSha256')}.json"
+            if (not video_path.is_file() or _sha256(video_path) != transcript.get("videoSha256")
+                    or not audio_path.is_file() or _sha256(audio_path) != transcript.get("audioSha256")
+                    or not raw_path.is_file() or _sha256(raw_path) != transcript.get("rawResponseSha256")
+                    or not by_video_path.is_file() or _sha256(by_video_path) != transcript.get("transcriptSha256")):
+                raise FactPackageError(f"transcript source hash mismatch: {material_id}")
+        transcript_text = str(transcript.get("text") or "") if transcript and transcript.get("status") == "available" else ""
+        script_text = platform_text or transcript_text
+        script_source = "platform" if platform_text else "agent_audio" if transcript_text else "unavailable"
         source_paths = _source_paths(
             root, normalized=f"normalized/detail-records/{material_id}.json", raw=detail_source,
         )
-        if asr is not None:
-            source_paths["asr"] = f"asr/materials/{material_id}.json"
+        if transcript is not None:
+            source_paths["transcript"] = f"transcripts/materials/{material_id}.json"
         records.append(_add_brand_fields({
             "material_id": material_id,
             "date_range": detail.get("date_range"),
             "audience_portrait": detail.get("audience_portrait", {}),
             "script_text": script_text,
             "platform_script_text": platform_text,
-            "asr_transcript": asr if asr is not None else None,
+            "audio_transcript": transcript if transcript is not None else None,
             "script_source": script_source,
             "content_formula": detail.get("content_formula"),
             "creative_breakdown": detail.get("creative_breakdown"),
@@ -347,11 +343,13 @@ def _source_artifacts(root: Path, details: dict[str, dict]) -> list[dict]:
     candidates = [root / "normalized/list-records.json"]
     candidates.extend(root / "normalized/detail-records" / f"{mid}.json" for mid in sorted(details))
     candidates.append(root / "highlights-manifest.json")
-    candidates.append(root / "asr" / "manifest.json")
-    candidates.extend((root / "asr" / "materials").glob("*.json"))
-    candidates.extend((root / "asr" / "attempts").glob("*/*.json"))
+    candidates.append(root / "transcripts" / "manifest.json")
+    candidates.extend((root / "transcripts" / "materials").glob("*.json"))
+    candidates.extend((root / "transcripts" / "by-video").glob("*.json"))
+    candidates.extend((root / "transcripts" / "raw").glob("*.txt"))
+    candidates.extend((root / "audio" / "by-video").glob("*.wav"))
     candidates.extend(root / "videos" / mid / "source-video.mp4" for mid in sorted(details)
-                      if (root / "asr" / "materials" / f"{mid}.json").is_file())
+                      if (root / "transcripts" / "materials" / f"{mid}.json").is_file())
     artifacts = []
     for path in candidates:
         if not path.is_file():
@@ -433,7 +431,7 @@ def _manifest(
                     "material_ranking": ["normalized/list-records.json", "raw-csv/list.csv"],
                     "audience": ["normalized/list-records.json", "raw-csv/list.csv"],
                     "content_tags": ["normalized/list-records.json", "raw-csv/list.csv"],
-                    "script": ["normalized/detail-records/", "raw-csv/details/", "asr/materials/", "videos/"],
+                    "script": ["normalized/detail-records/", "raw-csv/details/", "transcripts/materials/", "audio/", "videos/"],
                     "interaction_series": ["normalized/detail-records/", "raw-csv/details/"],
                     "highlight_frames": ["normalized/detail-records/", "raw-csv/details/", "highlights-manifest.json"],
                 }[name],

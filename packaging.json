@@ -19,10 +19,6 @@
       "destination": "requirements.txt"
     },
     {
-      "source": "requirements-asr.txt",
-      "destination": "requirements-asr.txt"
-    },
-    {
       "source": "agents/openai.yaml",
       "destination": "agents/openai.yaml"
     },
@@ -77,10 +73,6 @@
     {
       "source": "scripts/analysis_workflow.py",
       "destination": "scripts/analysis_workflow.py"
-    },
-    {
-      "source": "scripts/asr_worker.py",
-      "destination": "scripts/asr_worker.py"
     },
     {
       "source": "scripts/audience_overview.py",

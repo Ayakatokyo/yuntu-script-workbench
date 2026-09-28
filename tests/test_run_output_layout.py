@@ -38,7 +38,6 @@ class OutputLayoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             output = io.StringIO()
             with mock.patch.object(workbench.Path, "cwd", return_value=Path(temporary)), \
-                    mock.patch.object(workbench.FasterWhisperProvider, "preflight"), \
                     mock.patch.object(workbench, "collector_main", return_value=2) as collector, \
                     redirect_stdout(output):
                 status = workbench.main(["acquire", "--shop-id", "fixture", "--query-spec", "fixture.json"])
@@ -47,27 +46,34 @@ class OutputLayoutTests(unittest.TestCase):
             self.assertEqual(run_dir.parent, Path(temporary) / "云图素材脚本数据")
             self.assertEqual(collector.call_args.args[0][-2:], ["--output-dir", str(run_dir)])
 
-    def test_missing_model_stops_before_online_rpa(self):
+    def test_acquire_prepares_audio_without_local_model(self):
         with tempfile.TemporaryDirectory() as temporary, \
-                mock.patch.object(workbench, "collector_main") as collector:
+                mock.patch.object(workbench, "collector_main", return_value=0), \
+                mock.patch.object(workbench, "prepare_audio", return_value={"counts": {"pending_agent": 2}}) as prepare, \
+                redirect_stdout(io.StringIO()):
             status = workbench.main(["acquire", "--shop-id", "fixture", "--query-spec", "fixture.json",
-                                     "--model-dir", str(Path(temporary) / "missing")])
-        self.assertEqual(status, 2)
-        collector.assert_not_called()
+                                     "--output-dir", temporary])
+        self.assertEqual(status, 0)
+        prepare.assert_called_once_with(Path(temporary))
 
-    def test_failed_quality_retry_reports_nonzero_without_recollecting(self):
+    def test_finalize_does_not_recollect(self):
         with tempfile.TemporaryDirectory() as temporary, \
-                mock.patch.object(workbench.FasterWhisperProvider, "preflight"), \
-                mock.patch.object(workbench, "transcribe_run", return_value={
-                    "counts": {"available": 1}, "qualityRetries": {
-                        "attemptedVideos": 1, "upgradedVideos": 0, "failedVideos": 1}}) as transcribe, \
+                mock.patch.object(workbench, "finalize_transcripts", return_value={
+                    "counts": {"available": 1}}) as finalize, \
                 mock.patch.object(workbench, "build_fact_packages"), \
                 mock.patch.object(workbench, "write_script_report", return_value={}), \
                 mock.patch.object(workbench, "collector_main") as collector:
-            status = workbench.main(["process-scripts", "--run-dir", temporary,
-                                     "--retry-low-memory"])
+            status = workbench.main(["finalize-scripts", "--run-dir", temporary])
+        self.assertEqual(status, 0)
+        finalize.assert_called_once()
+        collector.assert_not_called()
+
+    def test_workflow_waits_for_final_script_report(self):
+        with tempfile.TemporaryDirectory() as temporary, \
+                mock.patch.object(workbench, "collector_main") as collector:
+            status = workbench.main(["workflow", "--run-dir", temporary,
+                                     "--business-question", "分析脚本"])
         self.assertEqual(status, 2)
-        self.assertTrue(transcribe.call_args.kwargs["retry_low_memory"])
         collector.assert_not_called()
 
 

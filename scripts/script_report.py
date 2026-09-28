@@ -43,6 +43,12 @@ def write_script_report(run_dir: Path) -> dict:
     if not manifest_path.is_file():
         raise ScriptReportError("facts_manifest_missing")
     manifest = _read(manifest_path)
+    for artifact in manifest.get("source_artifacts", []):
+        if not isinstance(artifact, dict) or not isinstance(artifact.get("path"), str):
+            raise ScriptReportError("source_artifact_invalid")
+        source = (root / artifact["path"]).resolve()
+        if not source.is_relative_to(root) or not source.is_file() or _hash(source) != artifact.get("sha256"):
+            raise ScriptReportError(f"source_artifact_hash_mismatch:{artifact['path']}")
     packages = {}
     for name in ("material_ranking", "script"):
         metadata = manifest.get("packages", {}).get(name)
@@ -55,7 +61,7 @@ def write_script_report(run_dir: Path) -> dict:
     detail_by_id = {str(item["material_id"]): item for item in packages["script"]}
     rows = []
     counts = {"ranking": len(packages["material_ranking"]), "detail": len(detail_by_id),
-              "platform": 0, "asr": 0, "unavailable": 0}
+              "platform": 0, "agent_audio": 0, "unavailable": 0}
     for ranking in packages["material_ranking"]:
         material_id = str(ranking.get("material_id") or "")
         detail = detail_by_id.get(material_id, {})
@@ -70,7 +76,7 @@ def write_script_report(run_dir: Path) -> dict:
             "scriptSource": source,
             "scriptText": detail.get("script_text", ""),
             "platformScriptText": detail.get("platform_script_text", ""),
-            "asr": detail.get("asr_transcript"),
+            "audioTranscript": detail.get("audio_transcript"),
             "sourcePaths": detail.get("source_paths", {}),
         })
     for material_id, detail in detail_by_id.items():
@@ -85,16 +91,14 @@ def write_script_report(run_dir: Path) -> dict:
     for row in rows:
         if row["materialId"] not in detail_by_id:
             continue
-        asr = row["asr"] if isinstance(row["asr"], dict) else {}
-        status = asr.get("status", "not_needed" if row["scriptSource"] == "platform" else "not_processed")
-        segments = asr.get("segments", []) if status == "available" else []
-        segment_html = "".join(f"<li>{escape(str(item['start']))}–{escape(str(item['end']))} 秒：{escape(item['text'])}</li>" for item in segments)
+        transcript = row["audioTranscript"] if isinstance(row["audioTranscript"], dict) else {}
+        status = transcript.get("status", "not_needed" if row["scriptSource"] == "platform" else "not_processed")
         details_html.append(
             f"<article id='m-{escape(row['materialId'])}'><h2>{escape(str(row['rank']))}. {escape(str(row['title']))}</h2>"
             f"<p>素材 ID：{escape(row['materialId'])} · 脚本来源：{escape(row['scriptSource'])} · 转写状态：{escape(str(status))}</p>"
             f"<pre>{escape(row['scriptText']) if row['scriptText'] else '无可用脚本文本'}</pre>"
-            f"<details><summary>平台原文与转写时间码</summary><p>平台原文</p><pre>{escape(row['platformScriptText'])}</pre>"
-            f"<ol>{segment_html}</ol></details></article>"
+            f"<details><summary>来源文本</summary><p>平台原文</p><pre>{escape(row['platformScriptText'])}</pre>"
+            f"<p>Agent 音频转写（无时间码）</p><pre>{escape(str(transcript.get('text') or ''))}</pre></details></article>"
         )
     leaderboard = "".join(
         f"<tr><td>{escape(str(row['rank']))}</td><td><a href='#m-{escape(row['materialId'])}'>{escape(str(row['title']))}</a>"
@@ -106,7 +110,7 @@ def write_script_report(run_dir: Path) -> dict:
     html = f"""<!doctype html><html lang='zh-CN'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>云图素材脚本工作台</title><style>body{{font:16px system-ui,sans-serif;color:#173252;background:#f5f9ff;margin:0 auto;max-width:1100px;padding:24px}}h1{{color:#1459a8}}table{{width:100%;border-collapse:collapse;background:white}}th,td{{padding:10px;border-bottom:1px solid #dce6f1;text-align:left}}small{{display:block;color:#60758b}}article{{background:white;margin:18px 0;padding:20px;border-radius:12px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}}a{{color:#1259aa}}.summary{{display:flex;gap:12px;flex-wrap:wrap}}.summary span{{background:white;padding:12px;border-radius:9px}}</style>
 <main><h1>云图素材脚本工作台</h1><p>第一阶段事实报告。平台脚本与音轨转写分开保存；转写仅覆盖可识别语音，不代表画面文字。</p>
-<div class='summary'><span>榜单 {counts['ranking']}</span><span>详情 {counts['detail']}</span><span>平台脚本 {counts['platform']}</span><span>ASR {counts['asr']}</span><span>无脚本 {counts['unavailable']}</span></div>
+<div class='summary'><span>榜单 {counts['ranking']}</span><span>详情 {counts['detail']}</span><span>平台脚本 {counts['platform']}</span><span>Agent 音频转写 {counts['agent_audio']}</span><span>无脚本 {counts['unavailable']}</span></div>
 <h2>素材榜单</h2><table><thead><tr><th>排名</th><th>素材</th><th>脚本来源</th></tr></thead><tbody>{leaderboard}</tbody></table>
 <h2>已获详情与脚本</h2>{''.join(details_html)}<p>数据与来源路径见同目录 report.json；用户提出分析问题后再进入第二阶段。</p></main></html>"""
     html_path = output_dir / "index.html"
