@@ -9,7 +9,7 @@
 - 测试：`python3 -B tools/test.py`
 - 构建：`python3 -B tools/build.py`，正式文件以 [packaging.json](packaging.json) 为准
 
-`acquire` 默认在调用方当前目录的 `云图素材脚本数据/run-.../` 建立本次运行目录，完成采集并把缺失平台脚本的视频音轨保存到 `audio/by-video/`。`transcripts/manifest.json` 列出待 Agent 理解的音频；Agent 将完整工具回复和纯转写文本各存为 UTF-8 文件，使用 `import-transcript --video-sha ... --response-file ... --text-file ...` 导入。全部待处理音频导入后，`finalize-scripts` 重建事实和 `script-report/index.html`。同一视频 SHA 去重，平台原文始终优先，转写无可靠时间码。
+`acquire` 默认在调用方当前目录的 `云图素材脚本数据/run-.../` 建立本次运行目录，完成采集并把缺失平台脚本的视频音轨保存到 `audio/by-video/`。`transcripts/manifest.json` 列出待 Agent 理解的音频；Agent 将完整工具回复和纯转写文本各存为 UTF-8 文件，使用 `import-transcript --video-sha ... --response-file ... --text-file ...` 导入。全部待处理音频导入后，`finalize-scripts` 重建事实和固定五分区的离线 `script-report/index.html`：素材筛选条件、完整素材榜单、脚本内容公式、单素材脚本、脚本片段库。结构数据及收据继续保存并绑定来源。同一视频 SHA 去重，平台原文始终优先，转写无可靠时间码。
 
 运行数据、客户视频与音频、转写结果、凭证和模型服务回复不入 Git 或 ZIP。旧运行目录中的 `asr/` 文件作为历史数据保留，不由新版流程继续生成或改写。在线 RPA、平台音频工具及目标平台安装须分别实测；本地离线测试不代表这些步骤已验收。
 

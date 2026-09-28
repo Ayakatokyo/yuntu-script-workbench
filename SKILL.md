@@ -30,7 +30,7 @@ python "$SKILL_ROOT/scripts/run.py" finalize-scripts --run-dir "$RUN_DIR"
 python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR"
 ```
 
-`finalize-scripts` 在仍有待转写视频时拒绝生成最终报告；完成后重建事实包并生成 `script-report/index.html`、`report.json` 和哈希收据。无视频或无音轨等缺口会保留并展示，不会写成成功转写。`render-script-report` 可在全部文本导入后重新生成报告。`--output-root` 可指定数据根；`--output-dir` 可指定现有运行目录，两者互斥。
+`finalize-scripts` 在仍有待转写视频时拒绝生成最终报告；完成后重建事实包并生成 `script-report/index.html`、`report.json` 和哈希收据。HTML 固定为“素材筛选条件、素材榜单、脚本内容公式、单素材脚本、脚本片段库”五个分区，沿用千川工作台的离线页面风格；榜单展示本轮完整已核验榜单，点击已获详情的素材可查看完整脚本。公式仅统计平台事实中的可读标签，片段库仅收录能在完整脚本中精确命中的来源原句。无视频或无音轨等缺口会保留并展示，不会写成成功转写。`render-script-report` 可在全部文本导入后重新生成报告。`--output-root` 可指定数据根；`--output-dir` 可指定现有运行目录，两者互斥。
 
 平台原脚本和 Agent 音频转写分开保存；`script_text` 优先取平台原文，否则取有效的 Agent 转写，`script_source` 为 `platform|agent_audio|unavailable`。音频理解结果没有可靠句段时间戳，本工作台不建立口播与高光帧的时间映射，也不把画面字幕当口播。报告完成后等待用户提出分析问题，不自动生成商业结论。
 

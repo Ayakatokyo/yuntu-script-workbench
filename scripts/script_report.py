@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
-from html import escape
 import hashlib
 import json
 from pathlib import Path
 import tempfile
 import os
+
+try:
+    from script_report_html import render_script_report_html
+except ImportError:
+    from .script_report_html import render_script_report_html
 
 
 class ScriptReportError(ValueError):
@@ -36,7 +40,10 @@ def _write(path: Path, content: str) -> None:
 def write_script_report(run_dir: Path) -> dict:
     root = Path(run_dir).resolve()
     summary_path = root / "run-summary.json"
-    if not summary_path.is_file() or _read(summary_path).get("workflow", {}).get("stage") != "ready_for_analysis":
+    if not summary_path.is_file():
+        raise ScriptReportError("collection_not_ready_for_script_report")
+    summary = _read(summary_path)
+    if summary.get("workflow", {}).get("stage") != "ready_for_analysis":
         raise ScriptReportError("collection_not_ready_for_script_report")
     facts_root = root / "facts"
     manifest_path = facts_root / "manifest.json"
@@ -77,42 +84,28 @@ def write_script_report(run_dir: Path) -> dict:
             "scriptText": detail.get("script_text", ""),
             "platformScriptText": detail.get("platform_script_text", ""),
             "audioTranscript": detail.get("audio_transcript"),
+            "contentFormula": detail.get("content_formula"),
+            "creativeBreakdown": detail.get("creative_breakdown"),
             "sourcePaths": detail.get("source_paths", {}),
         })
     for material_id, detail in detail_by_id.items():
         if material_id not in {row["materialId"] for row in rows}:
             raise ScriptReportError(f"detail_not_in_ranking:{material_id}")
+    contract = summary.get("collectionContract")
+    contract = contract if isinstance(contract, dict) else {}
+    selection = {
+        "industry": (contract.get("listParams") or {}).get("industry"),
+        "period": contract.get("detailDateRange"),
+        "rankingMetric": (contract.get("listParams") or {}).get("ranking_limit_type"),
+        "targetTopN": contract.get("targetTopN"),
+        "materialList": contract.get("materialList"),
+    }
     payload = {"schemaVersion": 1, "runId": manifest.get("run_id"), "counts": counts,
-               "rows": rows, "factsManifestSha256": _hash(manifest_path)}
+               "selection": selection, "rows": rows, "factsManifestSha256": _hash(manifest_path)}
     output_dir = root / "script-report"
     data_path = output_dir / "report.json"
     _write(data_path, json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n")
-    details_html = []
-    for row in rows:
-        if row["materialId"] not in detail_by_id:
-            continue
-        transcript = row["audioTranscript"] if isinstance(row["audioTranscript"], dict) else {}
-        status = transcript.get("status", "not_needed" if row["scriptSource"] == "platform" else "not_processed")
-        details_html.append(
-            f"<article id='m-{escape(row['materialId'])}'><h2>{escape(str(row['rank']))}. {escape(str(row['title']))}</h2>"
-            f"<p>素材 ID：{escape(row['materialId'])} · 脚本来源：{escape(row['scriptSource'])} · 转写状态：{escape(str(status))}</p>"
-            f"<pre>{escape(row['scriptText']) if row['scriptText'] else '无可用脚本文本'}</pre>"
-            f"<details><summary>来源文本</summary><p>平台原文</p><pre>{escape(row['platformScriptText'])}</pre>"
-            f"<p>Agent 音频转写（无时间码）</p><pre>{escape(str(transcript.get('text') or ''))}</pre></details></article>"
-        )
-    leaderboard = "".join(
-        f"<tr><td>{escape(str(row['rank']))}</td><td><a href='#m-{escape(row['materialId'])}'>{escape(str(row['title']))}</a>"
-        f"<small>{escape(row['materialId'])}</small></td><td>{escape(row['scriptSource'])}</td></tr>"
-        if row["materialId"] in detail_by_id else
-        f"<tr><td>{escape(str(row['rank']))}</td><td>{escape(str(row['title']))}<small>{escape(row['materialId'])}</small></td><td>未获取详情</td></tr>"
-        for row in rows
-    )
-    html = f"""<!doctype html><html lang='zh-CN'><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
-<title>云图素材脚本工作台</title><style>body{{font:16px system-ui,sans-serif;color:#173252;background:#f5f9ff;margin:0 auto;max-width:1100px;padding:24px}}h1{{color:#1459a8}}table{{width:100%;border-collapse:collapse;background:white}}th,td{{padding:10px;border-bottom:1px solid #dce6f1;text-align:left}}small{{display:block;color:#60758b}}article{{background:white;margin:18px 0;padding:20px;border-radius:12px}}pre{{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.7}}a{{color:#1259aa}}.summary{{display:flex;gap:12px;flex-wrap:wrap}}.summary span{{background:white;padding:12px;border-radius:9px}}</style>
-<main><h1>云图素材脚本工作台</h1><p>第一阶段事实报告。平台脚本与音轨转写分开保存；转写仅覆盖可识别语音，不代表画面文字。</p>
-<div class='summary'><span>榜单 {counts['ranking']}</span><span>详情 {counts['detail']}</span><span>平台脚本 {counts['platform']}</span><span>Agent 音频转写 {counts['agent_audio']}</span><span>无脚本 {counts['unavailable']}</span></div>
-<h2>素材榜单</h2><table><thead><tr><th>排名</th><th>素材</th><th>脚本来源</th></tr></thead><tbody>{leaderboard}</tbody></table>
-<h2>已获详情与脚本</h2>{''.join(details_html)}<p>数据与来源路径见同目录 report.json；用户提出分析问题后再进入第二阶段。</p></main></html>"""
+    html = render_script_report_html(payload)
     html_path = output_dir / "index.html"
     _write(html_path, html)
     receipt = {"reportPath": str(html_path), "dataPath": str(data_path), "htmlSha256": _hash(html_path),
