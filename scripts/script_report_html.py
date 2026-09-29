@@ -205,37 +205,17 @@ _DETAIL_STYLE = """
 @media(max-width:900px){.field-modal-body{grid-template-columns:160px minmax(0,1fr)}.field-modal-selected{grid-column:2;max-height:190px;border-top:1px solid var(--line)}.single-material-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:700px){.script-formula-donut{grid-template-columns:1fr}.script-formula-donut svg{margin:auto}.single-material-metrics{grid-template-columns:1fr}.single-formula-toolbar{align-items:flex-start;flex-direction:column}.single-formula-flow{flex-direction:column}.single-formula-flow-group{flex:0 0 auto;min-width:0}.single-formula-flow-arrow{transform:rotate(90deg);min-height:20px}.field-modal{padding:10px}.field-modal-panel{height:calc(100vh - 20px)}.field-modal-body{display:flex;flex-direction:column}.field-modal-groups{display:flex;gap:6px;padding:10px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line)}.field-modal-groups button{flex:0 0 auto;width:auto;margin:0;white-space:nowrap}.field-modal-selected{max-height:190px;border-top:1px solid var(--line);border-left:0}.field-option-grid{grid-template-columns:1fr}.field-modal-footer{align-items:flex-end;flex-direction:column}.field-modal-footer-actions{width:100%}.field-modal-footer-actions button{flex:1}}
 """
 
-_SCOPE_STYLE = """
-.report-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}.material-scope-switch{display:flex;gap:10px;flex:0 0 auto}.material-scope-switch button{width:150px;height:54px;padding:0 12px;border-color:var(--accent);border-radius:9px;background:#fff;color:var(--accent);font-size:16px;font-weight:650;line-height:1.3}.material-scope-switch button:hover:not(:disabled){border-color:#1d4ed8;background:var(--accent-soft);color:var(--accent)}.material-scope-switch button.active{background:var(--accent);color:#fff}.material-scope-switch button.active:hover:not(:disabled){border-color:#1d4ed8;background:#1d4ed8;color:#fff}
-@media(max-width:760px){.report-heading{flex-direction:column}.material-scope-switch{width:100%}.material-scope-switch button{flex:1;width:auto;min-width:0}}
-@media print{.material-scope-switch{display:none}}
-"""
-
 _SCRIPT = """
 (() => {
   const all = selector => Array.from(document.querySelectorAll(selector));
   const model = JSON.parse(document.getElementById("report-ui-data").textContent);
-  const fields = model.leaderboardFields || [];
-  const fieldMap = Object.fromEntries(fields.map(field => [field.id, field]));
-  const groupOrder = ["素材基础信息", "内容曝光与播放", "点击与转化", "互动指标", "其他指标"];
-  const fieldGroups = groupOrder.filter(group => fields.some(field => field.group === group));
-  const defaultFieldIds = model.defaultFieldIds || ["title"];
-  const storageKey = `yuntu-script-report:${model.runId || "unknown"}:v${model.schemaVersion || 1}:leaderboard`;
-  const orderedIds = ids => { const selected = new Set(Array.isArray(ids) ? ids : []); selected.add("title"); return fields.filter(field => selected.has(field.id)).map(field => field.id); };
   const brandOverview = model.brandOverview || {status:"unavailable", tabs:[], materialIdsByTab:{}};
-  let selectedBrand = brandOverview.status === "available" ? "all" : null;
   const detailIds = new Set((model.detailMaterialIds || []).map(String));
-  const scopeButtons = all("[data-material-scope]");
-  let materialScope = "all";
   const panels = all("[data-panel]");
   const tabs = all("[data-section]");
   const cards = all("[data-card]");
   const options = all(".material-option");
-  const openLinks = all("[data-open]");
-  const rows = all("[data-row]");
-  let page = 1, sortKey = "", direction = 0;
-  const pageSize = 10;
-  const normalize = value => String(value || "").normalize("NFKC").toLocaleLowerCase().trim();
+  let selectedBrand = brandOverview.status === "available" ? "all" : null;
   function section(name) {
     panels.forEach(item => { item.hidden = item.dataset.panel !== name; });
     tabs.forEach(item => {
@@ -245,7 +225,6 @@ _SCRIPT = """
     });
   }
   function openMaterial(index) {
-    if (materialScope !== "detail") applyScope("detail");
     cards.forEach(item => { item.hidden = item.dataset.card !== index; });
     options.forEach(item => item.classList.toggle("active", item.dataset.open === index));
     section("single-material");
@@ -253,123 +232,39 @@ _SCRIPT = """
   tabs.forEach(item => item.addEventListener("click", event => {
     event.preventDefault(); section(item.dataset.section);
   }));
-  openLinks.forEach(item => item.addEventListener("click", event => {
+  all("[data-open]").forEach(item => item.addEventListener("click", event => {
     event.preventDefault(); openMaterial(item.dataset.open);
   }));
-  const search = document.getElementById("material-search");
+  function escapeText(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;", "'":"&#39;"}[char] || "&quot;")); }
   function renderBrandTabs() {
     all("[data-brand-tabs]").forEach(container => {
-      container.innerHTML = brandOverview.status === "available" ? brandOverview.tabs.map(tab => { const count = materialScope === "detail" ? (brandOverview.materialIdsByTab?.[tab.id] || []).filter(id => detailIds.has(String(id))).length : tab.count; return `<button type="button" role="tab" data-brand-tab-id="${escapeText(tab.id)}" aria-selected="${tab.id === selectedBrand}" class="${tab.id === selectedBrand ? "active" : ""}">${escapeText(tab.label)}<span class="brand-tabs-count">${escapeText(count)}</span></button>`; }).join("") : '<span class="source-note">本轮品牌分类事实不可用</span>';
+      container.innerHTML = brandOverview.status === "available" ? brandOverview.tabs.map(tab => {
+        const count = (brandOverview.materialIdsByTab?.[tab.id] || []).filter(id => detailIds.has(String(id))).length;
+        return `<button type="button" role="tab" data-brand-tab-id="${escapeText(tab.id)}" aria-selected="${tab.id === selectedBrand}" class="${tab.id === selectedBrand ? "active" : ""}">${escapeText(tab.label)}<span class="brand-tabs-count">${escapeText(count)}</span></button>`;
+      }).join("") : '<span class="source-note">本轮品牌分类事实不可用</span>';
     });
   }
-  function applyScope(scope) {
-    const currentSection = tabs.find(tab => tab.classList.contains("active"))?.dataset.section || "filters";
-    materialScope = scope;
-    scopeButtons.forEach(button => { const active = button.dataset.materialScope === scope; button.classList.toggle("active", active); button.setAttribute("aria-pressed", String(active)); });
-    document.getElementById("materials-tab").textContent = scope === "detail" ? "详情素材榜单" : "全量素材榜单";
-    tabs.forEach(tab => { tab.hidden = scope === "all" && !["filters", "materials"].includes(tab.dataset.section); });
-    page = 1;
-    renderBrandTabs();
-    section(scope === "all" && !["filters", "materials"].includes(currentSection) ? "filters" : currentSection);
-    updateRows();
-  }
-  scopeButtons.forEach(button => button.addEventListener("click", () => applyScope(button.dataset.materialScope)));
-  function escapeText(value) { return String(value == null ? "" : value).replace(/[&<>"']/g, char => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;"}[char] || "&quot;")); }
   document.addEventListener("click", event => {
     const button = event.target.closest("[data-brand-tab-id]");
     if (!button || !brandOverview.tabs.some(tab => tab.id === button.dataset.brandTabId)) return;
-    const focusedBar = button.closest("[data-brand-tabs]");
     selectedBrand = button.dataset.brandTabId;
-    page = 1;
-    renderBrandTabs(); updateRows();
-    Array.from(focusedBar?.querySelectorAll("[data-brand-tab-id]") || []).find(tab => tab.dataset.brandTabId === selectedBrand)?.focus();
+    renderBrandTabs();
+    all("[data-brand-tab-id]").find(tab => tab.dataset.brandTabId === selectedBrand)?.focus();
     window.dispatchEvent(new CustomEvent("yuntu:brand-changed", {detail:{brandId:selectedBrand}}));
   });
-  function updateRows() {
-    const query = normalize(search.value);
-    const brandIds = selectedBrand == null ? null : new Set(brandOverview.materialIdsByTab?.[selectedBrand] || []);
-    const matching = rows.filter(row => (materialScope === "all" || detailIds.has(row.dataset.materialId)) && (!brandIds || brandIds.has(row.dataset.materialId)) && normalize(row.dataset.search).includes(query));
-    if (sortKey && direction) matching.sort((a,b) => {
-      const value = row => row.querySelector(`[data-field-cell="${sortKey}"]`)?.dataset.sortValue || "";
-      const av = value(a), bv = value(b);
-      if (!av || !bv) return av === bv ? Number(a.dataset.row) - Number(b.dataset.row) : av ? -1 : 1;
-      const kind = fieldMap[sortKey]?.kind;
-      const compared = ["number", "integer", "rate"].includes(kind) ? Number(av) - Number(bv) : normalize(av).localeCompare(normalize(bv));
-      return compared * direction || Number(a.dataset.row) - Number(b.dataset.row);
-    });
-    page = Math.max(1, Math.min(page, Math.max(1, Math.ceil(matching.length / pageSize))));
-    rows.forEach(row => { row.hidden = true; });
-    matching.slice((page-1)*pageSize, page*pageSize).forEach(row => {
-      row.hidden = false; document.getElementById("material-rows").appendChild(row);
-    });
-    document.getElementById("visible-count").textContent = "共 " + matching.length + " 条";
-    document.getElementById("table-range").textContent = matching.length ? "显示 " + ((page-1)*pageSize+1) + "-" + Math.min(page*pageSize,matching.length) + " / " + matching.length : "暂无记录";
-    document.getElementById("page-number").textContent = page + " / " + Math.max(1,Math.ceil(matching.length/pageSize));
-    document.getElementById("previous-page").disabled = page <= 1;
-    document.getElementById("next-page").disabled = page >= Math.max(1,Math.ceil(matching.length/pageSize));
-    document.getElementById("no-results").hidden = matching.length > 0;
-  }
-  search.addEventListener("input", () => { page = 1; updateRows(); });
-  all("[data-sort]").forEach(button => button.addEventListener("click", () => {
-    const key = button.dataset.sort;
-    direction = sortKey === key ? direction === 1 ? -1 : direction === -1 ? 0 : 1 : 1;
-    sortKey = direction ? key : "";
-    all("[data-sort] span").forEach(mark => { mark.textContent = ""; });
-    if (direction) button.querySelector("span").textContent = direction === 1 ? " ↑" : " ↓";
-    updateRows();
-  }));
-  document.getElementById("previous-page").onclick = () => { page--; updateRows(); };
-  document.getElementById("next-page").onclick = () => { page++; updateRows(); };
-  const modal = document.getElementById("field-management"), fieldGroupButtons = document.getElementById("field-groups"), fieldSearch = document.getElementById("field-search"), fieldOptions = document.getElementById("field-options"), selectedFields = document.getElementById("selected-fields");
-  const picker = {visibleIds:[], draftIds:null, query:"", group:fieldGroups[0] || "", lastFocused:null};
-  try { picker.visibleIds = orderedIds(JSON.parse(localStorage.getItem(storageKey) || "null") || defaultFieldIds); }
-  catch (_) { picker.visibleIds = orderedIds(defaultFieldIds); }
-  function showColumns() {
-    const selected = new Set(picker.visibleIds);
-    all("[data-col]").forEach(item => { item.hidden = !selected.has(item.dataset.col); });
-    all("[data-field-cell]").forEach(item => { item.hidden = !selected.has(item.dataset.fieldCell); });
-  }
-  function renderDialog() {
-    picker.draftIds = orderedIds(picker.draftIds);
-    fieldGroupButtons.innerHTML = fieldGroups.map(group => `<button type="button" data-field-group="${escapeText(group)}" class="${!picker.query && picker.group === group ? "active" : ""}">${escapeText(group)}<span>${fields.filter(field => field.group === group).length}</span></button>`).join("");
-    const query = normalize(picker.query);
-    const available = fields.filter(field => query ? normalize(field.label).includes(query) || normalize(field.id).includes(query) : field.group === picker.group);
-    const grouped = {}; available.forEach(field => (grouped[field.group] ||= []).push(field));
-    fieldOptions.innerHTML = Object.entries(grouped).map(([group, items]) => `<section class="field-option-section"><h3>${escapeText(group)}</h3><div class="field-option-grid">${items.map(field => `<label class="field-option"><input type="checkbox" data-field-id="${escapeText(field.id)}"${picker.draftIds.includes(field.id) ? " checked" : ""}${field.id === "title" ? " disabled" : ""}><span>${escapeText(field.label)}</span></label>`).join("")}</div></section>`).join("") || '<div class="empty">没有匹配字段</div>';
-    document.getElementById("selected-count").textContent = `（${picker.draftIds.length}）`;
-    selectedFields.innerHTML = picker.draftIds.map(id => { const field = fieldMap[id]; return `<li class="field-modal-selected-item"><span class="field-drag-handle">☷</span><span>${escapeText(field.label)}</span>${id === "title" ? '<span class="field-required">固定</span>' : `<button type="button" data-remove-field-id="${escapeText(id)}" aria-label="移除${escapeText(field.label)}">×</button>`}</li>`; }).join("");
-  }
-  function openDialog(event) { picker.lastFocused = event.currentTarget; picker.draftIds = [...picker.visibleIds]; picker.query = ""; picker.group = fieldGroups[0] || ""; fieldSearch.value = ""; modal.hidden = false; document.body.classList.add("modal-open"); renderDialog(); fieldSearch.focus(); }
-  function closeDialog() { modal.hidden = true; picker.draftIds = null; picker.query = ""; document.body.classList.remove("modal-open"); picker.lastFocused?.focus(); }
-  modal.addEventListener("click", event => {
-    const action = event.target.closest("[data-field-action]")?.dataset.fieldAction;
-    if (action === "cancel") { closeDialog(); return; }
-    if (action === "confirm") { picker.visibleIds = orderedIds(picker.draftIds); try { localStorage.setItem(storageKey, JSON.stringify(picker.visibleIds)); } catch (_) {} page = 1; closeDialog(); showColumns(); updateRows(); return; }
-    if (action === "reset") { picker.draftIds = orderedIds(defaultFieldIds); renderDialog(); return; }
-    const group = event.target.closest("[data-field-group]")?.dataset.fieldGroup;
-    if (group) { picker.group = group; picker.query = ""; fieldSearch.value = ""; renderDialog(); return; }
-    const remove = event.target.closest("[data-remove-field-id]")?.dataset.removeFieldId;
-    if (remove) { picker.draftIds = picker.draftIds.filter(id => id !== remove); renderDialog(); }
-  });
-  modal.addEventListener("change", event => { const input = event.target.closest("[data-field-id]"); if (!input || input.dataset.fieldId === "title") return; picker.draftIds = orderedIds(input.checked ? [...picker.draftIds, input.dataset.fieldId] : picker.draftIds.filter(id => id !== input.dataset.fieldId)); renderDialog(); });
-  fieldSearch.addEventListener("input", event => { picker.query = event.target.value; renderDialog(); fieldSearch.focus(); });
-  document.getElementById("field-button").addEventListener("click", openDialog);
-  document.addEventListener("keydown", event => { if (event.key === "Escape" && !modal.hidden) closeDialog(); });
-  showColumns();
   if (cards.length) {
     cards.forEach((item,index) => { item.hidden = index !== 0; });
     options[0]?.classList.add("active");
   }
-  document.getElementById("report-controls").hidden = false;
-  document.getElementById("table-pager").hidden = false;
-  document.getElementById("quote-search").hidden = false;
-  const quoteCards = all("[data-quote]");
   const quoteSearch = document.getElementById("quote-search");
+  quoteSearch.hidden = false;
+  const normalize = value => String(value || "").normalize("NFKC").toLocaleLowerCase().trim();
   quoteSearch.addEventListener("input", () => {
     const query = normalize(quoteSearch.value);
-    quoteCards.forEach(card => { card.hidden = !normalize(card.textContent).includes(query); });
+    all("[data-quote]").forEach(card => { card.hidden = !normalize(card.textContent).includes(query); });
   });
-  applyScope("all");
+  renderBrandTabs();
+  section("filters");
 })();
 """
 
@@ -543,30 +438,34 @@ _DETAIL_SCRIPT = """
 def render_script_report_html(report: dict) -> str:
     rows = report["rows"]
     detail_rows = [(index, row) for index, row in enumerate(rows) if row["sourcePaths"]]
-    detail_indexes = {row["materialId"]: index for index, row in detail_rows}
-    leaderboard_fields = _leaderboard_fields(rows)
-    columns = [field for field in leaderboard_fields if field["id"] != "title"]
     selection = report.get("selection") or {}
     formula_overview = report.get("scriptFormulaOverview")
     if not isinstance(formula_overview, dict):
         formula_overview = _formula_overview([row for _, row in detail_rows])
     brand_overview = report.get("brandOverview") or {"status": "unavailable", "tabs": [], "materialIdsByTab": {}, "views": {}}
+    detail_ids = {str(row["materialId"]) for _, row in detail_rows}
+    display_brand_ids = {tab_id: [material_id for material_id in material_ids if str(material_id) in detail_ids]
+                         for tab_id, material_ids in (brand_overview.get("materialIdsByTab") or {}).items()}
+    display_brand_overview = {
+        "status": brand_overview.get("status", "unavailable"),
+        "tabs": [{**tab, "count": len(display_brand_ids.get(tab.get("id"), []))}
+                 for tab in brand_overview.get("tabs", [])],
+        "materialIdsByTab": display_brand_ids,
+        "views": brand_overview.get("views") or {},
+    }
     single_models = {str(index): {"core": _single_core(row), "formula": _single_formula(row)}
                      for index, row in detail_rows}
     quotes = _quotes(detail_rows)
     parts = [
         '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',
         '<meta http-equiv="Content-Security-Policy" content="default-src &#39;none&#39;; style-src &#39;unsafe-inline&#39;; script-src &#39;unsafe-inline&#39;; base-uri &#39;none&#39;; form-action &#39;none&#39;">',
-        '<title>云图素材脚本数据工作台</title><style>', _STYLE, _DETAIL_STYLE, _SCOPE_STYLE, '</style></head><body><main>',
-        '<div class="report-heading"><div><h1>云图素材脚本数据工作台</h1></div>',
-        '<div class="material-scope-switch" role="group" aria-label="素材数据口径"><button type="button" data-material-scope="all" aria-pressed="true">全量素材</button><button type="button" data-material-scope="detail" aria-pressed="false">详情素材</button></div></div>',
+        '<title>云图素材脚本数据工作台</title><style>', _STYLE, _DETAIL_STYLE, '</style></head><body><main>',
+        '<div class="report-heading"><h1>云图素材脚本数据工作台</h1></div>',
         '<nav class="section-nav" aria-label="报告部分">'
     ]
-    for key, label in (("filters", "素材筛选条件"), ("materials", "素材榜单"), ("scripts", "脚本内容公式"),
+    for key, label in (("filters", "素材筛选条件"), ("scripts", "脚本内容公式"),
                        ("single-material", "单素材脚本"), ("quote-library", "脚本片段库")):
-        detail_only = ' data-detail-only="true"' if key not in {"filters", "materials"} else ""
-        tab_id = ' id="materials-tab"' if key == "materials" else ""
-        parts.append('<a href="#' + key + '-panel" data-section="' + key + '"' + detail_only + tab_id + '>' + ("全量素材榜单" if key == "materials" else label) + '</a>')
+        parts.append('<a href="#' + key + '-panel" data-section="' + key + '">' + label + '</a>')
     parts.append('</nav><noscript><p class="panel">浏览器未启用 JavaScript；全部分区和素材保持展开，可以直接阅读。</p></noscript>')
     period = selection.get("period")
     period = period if isinstance(period, dict) else {}
@@ -578,7 +477,7 @@ def render_script_report_html(report: dict) -> str:
         ("取数周期", _PERIOD_LABELS.get(period.get("date_type") or period.get("type"), period.get("date_type") or period.get("type"))),
         ("开始日期", period.get("custom_start_date") or period.get("start_date")),
         ("结束日期", period.get("custom_end_date") or period.get("end_date")),
-        ("榜单口径", _RANKING_LABELS.get(selection.get("rankingMetric"), selection.get("rankingMetric"))),
+        ("选材排序口径", _RANKING_LABELS.get(selection.get("rankingMetric"), selection.get("rankingMetric"))),
         ("脚本素材数 TopN", selection.get("targetTopN")),
         ("平台品牌范围", "指定品牌" if selection.get("brandScope") == "SPECIFIED_BRANDS" else "全行业"),
         ("指定品牌", "、".join(selection.get("brands") or []) if selection.get("brandScope") == "SPECIFIED_BRANDS" else "不适用"),
@@ -587,30 +486,7 @@ def render_script_report_html(report: dict) -> str:
     ]
     for label, value in context:
         parts.append('<div><dt>' + label + '</dt><dd>' + _e(value) + '</dd></div>')
-    parts.append('</dl></section><section id="materials-panel" data-panel="materials"><div class="brand-tabs" data-brand-tabs="materials" role="tablist" aria-label="素材榜单品牌筛选"></div><div class="toolbar" id="report-controls" hidden><input id="material-search" type="search" placeholder="输入素材标题或 ID" aria-label="搜索素材标题或 ID"><button id="field-button" type="button">自定义指标</button></div>')
-    parts.append('<section id="field-management" class="field-modal" role="dialog" aria-modal="true" aria-labelledby="field-management-title" hidden><div class="field-modal-backdrop" data-field-action="cancel"></div><div class="field-modal-panel"><header class="field-modal-header"><div><h2 id="field-management-title">自定义指标</h2><p>选择后按固定字段分组顺序呈现表格列</p></div><button class="field-modal-close" type="button" data-field-action="cancel" aria-label="关闭自定义指标">×</button></header><div class="field-modal-body"><nav id="field-groups" class="field-modal-groups" aria-label="字段分组"></nav><section class="field-modal-main" aria-label="可选指标"><div class="field-modal-search"><input id="field-search" type="search" placeholder="搜索指标" aria-label="搜索指标"></div><div id="field-options" class="field-options"></div></section><aside class="field-modal-selected" aria-label="已选择指标"><div class="field-modal-selected-header"><div><strong>已选择</strong> <span id="selected-count"></span></div><button type="button" data-field-action="reset">重置</button></div><ol id="selected-fields" class="field-modal-selected-list"></ol></aside></div><footer class="field-modal-footer"><p>视频标题为固定列，素材 ID 显示在标题下方</p><div class="field-modal-footer-actions"><button type="button" data-field-action="cancel">取消</button><button class="primary" type="button" data-field-action="confirm">确定</button></div></footer></div></section>')
-    parts.append('<p class="count-note" id="visible-count">共 ' + str(len(rows)) + ' 条</p><div class="table-wrap"><table aria-label="素材榜单"><thead><tr><th class="material-name-column" scope="col">素材名称</th>')
-    for column in columns:
-        parts.append('<th scope="col" data-col="' + _e(column["id"]) + '"><button type="button" data-sort="' + _e(column["id"]) + '">' + _e(column["label"]) + '<span></span></button></th>')
-    parts.append('</tr></thead><tbody id="material-rows">')
-    for index, row in enumerate(rows):
-        title = row["title"] or "素材名称未提供"
-        material_id = row["materialId"]
-        parts.append('<tr data-row="' + str(index) + '" data-material-id="' + _e(material_id) + '" data-search="' + _e(title + " " + material_id) + '"><td class="material-name-column">')
-        if material_id in detail_indexes:
-            parts.append('<a class="material-title" href="#material-' + str(index) + '" data-open="' + str(index) + '" title="' + _e(title) + '">' + _e(title) + '</a>')
-        else:
-            parts.append('<span class="material-title" title="' + _e(title) + '">' + _e(title) + '</span>')
-        parts.append('<div class="material-id">素材 ID：' + _e(material_id) + '</div></td>')
-        for column in columns:
-            value = _row_field_value(row, column["id"])
-            sortable = "" if value is None or value == "" or isinstance(value, (dict, list, bool)) else str(value)
-            display = "、".join(map(str, value)) if isinstance(value, list) else _display_metric(value, column["kind"])
-            if column["kind"] == "date" and isinstance(value, str) and len(value) == 8 and value.isdigit():
-                display = f"{value[:4]}-{value[4:6]}-{value[6:]}"
-            parts.append('<td data-field-cell="' + _e(column["id"]) + '" data-sort-value="' + escape(sortable, quote=True) + '">' + _e(display) + '</td>')
-        parts.append('</tr>')
-    parts.append('</tbody></table></div><div class="empty" id="no-results" hidden>没有匹配素材。</div><div class="pager" id="table-pager" hidden><span id="table-range"></span><div><button type="button" id="previous-page">上一页</button><span id="page-number"></span><button type="button" id="next-page">下一页</button></div></div></section>')
+    parts.append('</dl></section>')
     parts.append('<section id="scripts-panel" data-panel="scripts" class="script-section"><div class="brand-tabs" data-brand-tabs="scripts" role="tablist" aria-label="脚本内容公式品牌筛选"></div><div class="panel"><div class="script-card-header"><h3>一级内容公式</h3><span class="script-card-hint">点击一级内容公式柱状图可以显示二级内容公式分布</span></div><div id="script-formula-chart" class="chart-box"></div></div><div id="script-formula-secondary-card" class="panel" hidden><div class="script-card-header"><h3 id="script-formula-secondary-title">二级内容公式分布</h3><button id="script-formula-secondary-back" type="button">收起二级内容公式</button></div><div class="script-formula-donut"><div id="script-formula-secondary-chart" class="chart-box"></div><div id="script-formula-secondary-legend" class="legend" aria-label="二级内容公式图例"></div></div></div>')
     if formula_overview.get("primaryBuckets"):
         parts.append('<noscript><div class="panel"><h3>公式标签覆盖素材数</h3><ul>')
@@ -659,10 +535,7 @@ def render_script_report_html(report: dict) -> str:
     parts.append('</div></section></main><div id="chart-tooltip" class="chart-tooltip" hidden></div><script id="report-ui-data" type="application/json">')
     parts.append(json.dumps({"runId": report.get("runId"), "schemaVersion": report.get("schemaVersion", 1),
                              "detailMaterialIds": report.get("detailMaterialIds") or [row["materialId"] for _, row in detail_rows],
-                             "scriptFormulaOverview": formula_overview, "brandOverview": brand_overview,
-                             "leaderboardFields": leaderboard_fields,
-                             "defaultFieldIds": [field_id for field_id in _DEFAULT_FIELD_IDS
-                                                 if field_id in {field["id"] for field in leaderboard_fields}],
+                             "scriptFormulaOverview": formula_overview, "brandOverview": display_brand_overview,
                              "singleModels": single_models},
                             ensure_ascii=False, sort_keys=True).replace("<", "\\u003c"))
     parts.append('</script><script>')

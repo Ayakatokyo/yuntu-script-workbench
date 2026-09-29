@@ -41,7 +41,7 @@ def test_html_is_identical_after_report_json_key_sorting():
     assert render_script_report_html(report) == render_script_report_html(persisted)
 
 
-def test_fixed_five_sections_and_full_leaderboard_with_sparse_details():
+def test_detail_sections_exclude_full_ranking_rows():
     report = {
         "counts": {"ranking": 2, "detail": 1, "platform": 1, "agent_audio": 0, "unavailable": 0},
         "selection": {"industry": "食品饮料", "targetTopN": 1,
@@ -50,23 +50,27 @@ def test_fixed_five_sections_and_full_leaderboard_with_sparse_details():
             _row("1", title="第一条", script="真实口播"),
             _row("2", title="只在榜单", detail=False),
         ],
+        "brandOverview": {"status": "available", "tabs": [{"id": "all", "label": "全部素材", "count": 2}],
+                          "materialIdsByTab": {"all": ["1", "2"]},
+                          "materialBrands": {"1": "甲", "2": "乙"}, "views": {}},
     }
     html = render_script_report_html(report)
-    for section in ("素材筛选条件", "全量素材榜单", "脚本内容公式", "单素材脚本", "脚本片段库"):
+    for section in ("素材筛选条件", "脚本内容公式", "单素材脚本", "脚本片段库"):
         assert html.count(">" + section + "<") >= 1
-    assert 'id="materials-tab"' in html
-    assert 'scope === "detail" ? "详情素材榜单" : "全量素材榜单"' in html
-    assert html.count("data-row=") == 2
+    assert 'id="materials-panel"' not in html
+    assert 'id="materials-tab"' not in html
+    assert html.count("data-row=") == 0
     assert html.count("data-card=") == 1
     assert 'data-open="0"' in html
     assert 'data-open="1"' not in html
     embedded = json.loads(re.search(r'<script id="report-ui-data" type="application/json">(.*?)</script>', html).group(1))
     assert embedded["detailMaterialIds"] == ["1"]
-    assert html.count('data-material-scope="') == 2
-    assert 'data-material-scope="all" aria-pressed="true">全量素材</button>' in html
-    assert 'data-material-scope="detail" aria-pressed="false">详情素材</button>' in html
+    assert embedded["brandOverview"]["materialIdsByTab"] == {"all": ["1"]}
+    assert embedded["brandOverview"]["tabs"][0]["count"] == 1
+    assert "materialBrands" not in embedded["brandOverview"]
+    assert 'data-material-scope="' not in html
     assert "真实口播" in html
-    assert "只在榜单" in html
+    assert "只在榜单" not in html
     assert "default-src &#39;none&#39;" in html
 
 
@@ -146,7 +150,7 @@ def test_brand_scope_keeps_filter_values_without_extra_explanation():
     assert "不等于品牌归属判定" not in html
 
 
-def test_leaderboard_uses_meta_field_defaults_and_a_modal_without_new_pages():
+def test_ranking_fields_do_not_enter_report_ui_without_details():
     row = _row("1", title="第一条", detail=False)
     row.update({"publishTime": "20260928", "videoDuration": 18, "materialTags": ["演示标签"]})
     row["metrics"].update({"play_3s_rate": 0.4, "play_over_rate": 0.2,
@@ -156,16 +160,10 @@ def test_leaderboard_uses_meta_field_defaults_and_a_modal_without_new_pages():
                                              "agent_audio": 0, "unavailable": 0}, "rows": [row]}
     html = render_script_report_html(report)
     embedded = json.loads(re.search(r'<script id="report-ui-data" type="application/json">(.*?)</script>', html).group(1))
-    expected = {"title", "publish_time", "metrics.show_cnt", "metrics.play_3s_rate",
-                "metrics.play_over_rate", "metrics.play_duration_avg", "metrics.ctr",
-                "metrics.cvr", "metrics.pvr", "metrics.interact_rate"}
-    assert set(embedded["defaultFieldIds"]) == expected
-    assert embedded["defaultFieldIds"] == ["title", "publish_time", "metrics.show_cnt",
-                                           "metrics.play_3s_rate", "metrics.play_over_rate",
-                                           "metrics.play_duration_avg", "metrics.ctr", "metrics.cvr",
-                                           "metrics.pvr", "metrics.interact_rate"]
-    assert html.count('data-brand-tabs="') == 2
-    assert len(re.findall(r'<a [^>]*data-section=', html)) == 5
-    assert 'id="field-management"' in html and 'id="field-groups"' in html
-    assert 'id="selected-fields"' in html and 'data-field-action="confirm"' in html
+    assert "leaderboardFields" not in embedded
+    assert "defaultFieldIds" not in embedded
+    assert html.count('data-brand-tabs="') == 1
+    assert len(re.findall(r'<a [^>]*data-section=', html)) == 4
+    assert 'id="field-management"' not in html
+    assert 'id="single-core-field-management"' in html
     assert 'data-metric-choice' not in html
