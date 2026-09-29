@@ -52,12 +52,19 @@ def test_fixed_five_sections_and_full_leaderboard_with_sparse_details():
         ],
     }
     html = render_script_report_html(report)
-    for section in ("素材筛选条件", "素材榜单", "脚本内容公式", "单素材脚本", "脚本片段库"):
+    for section in ("素材筛选条件", "全量素材榜单", "脚本内容公式", "单素材脚本", "脚本片段库"):
         assert html.count(">" + section + "<") >= 1
+    assert 'id="materials-tab"' in html
+    assert 'scope === "detail" ? "详情素材榜单" : "全量素材榜单"' in html
     assert html.count("data-row=") == 2
     assert html.count("data-card=") == 1
     assert 'data-open="0"' in html
     assert 'data-open="1"' not in html
+    embedded = json.loads(re.search(r'<script id="report-ui-data" type="application/json">(.*?)</script>', html).group(1))
+    assert embedded["detailMaterialIds"] == ["1"]
+    assert html.count('data-material-scope="') == 2
+    assert 'data-material-scope="all" aria-pressed="true">全量素材</button>' in html
+    assert 'data-material-scope="detail" aria-pressed="false">详情素材</button>' in html
     assert "真实口播" in html
     assert "只在榜单" in html
     assert "default-src &#39;none&#39;" in html
@@ -125,7 +132,7 @@ def test_formula_source_text_is_safe_in_embedded_model():
     assert json.loads(embedded)["singleModels"]["0"]["formula"]["sources"]["script"]["text"].startswith("</script>")
 
 
-def test_brand_scope_is_disclosed_without_treating_title_match_as_brand_truth():
+def test_brand_scope_keeps_filter_values_without_extra_explanation():
     report = {
         "counts": {"ranking": 1, "detail": 1, "platform": 0, "agent_audio": 0, "unavailable": 1},
         "selection": {"industry": "食品饮料", "brandScope": "SPECIFIED_BRANDS",
@@ -135,8 +142,8 @@ def test_brand_scope_is_disclosed_without_treating_title_match_as_brand_truth():
     html = render_script_report_html(report)
     assert "平台品牌范围" in html and "指定品牌" in html
     assert "小仙炖、燕之屋、五个女博士" in html
-    assert "1 条榜单标题未出现指定品牌名" in html
-    assert "不等于品牌归属判定" in html
+    assert "1 条榜单标题未出现指定品牌名" not in html
+    assert "不等于品牌归属判定" not in html
 
 
 def test_leaderboard_uses_meta_field_defaults_and_a_modal_without_new_pages():

@@ -96,6 +96,7 @@ class ScriptWorkbenchTests(unittest.TestCase):
         self.assertEqual(receipt["counts"]["agent_audio"], 2)
         self.assertIn("燕之屋鲜炖燕窝", Path(receipt["reportPath"]).read_text())
         report = json.loads(Path(receipt["dataPath"]).read_text(encoding="utf-8"))
+        self.assertEqual(report["detailMaterialIds"], ["1", "2", "3", "4"])
         self.assertEqual(report["scriptFormulaOverview"]["coverage"]["scriptMaterialCount"], 4)
         self.assertEqual(report["brandOverview"]["status"], "available")
         self.assertEqual([(tab["id"], tab["count"]) for tab in report["brandOverview"]["tabs"]],

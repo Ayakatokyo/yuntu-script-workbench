@@ -152,6 +152,7 @@ def write_script_report(run_dir: Path) -> dict:
     }
     payload = {"schemaVersion": 1, "runId": manifest.get("run_id"), "counts": counts,
                "selection": selection, "rows": rows,
+               "detailMaterialIds": [row["materialId"] for row in rows if row["materialId"] in detail_by_id],
                "scriptFormulaOverview": (brand_overview["views"]["all"]["scriptFormulaOverview"]
                                          if brand_overview["status"] == "available"
                                          else _formula_overview([row for row in rows if row["sourcePaths"]])),
