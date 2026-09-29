@@ -18,7 +18,7 @@ from runtime_paths import RuntimePathError, external_runtime_path
 from script_report import ScriptReportError, write_script_report
 from script_transcription import TranscriptionError, prepare_audio, import_transcript, mark_unavailable, finalize_transcripts
 from analysis_delivery import read_page, timed_phase
-from analysis_delivery_adapter import render_analysis_delivery, analysis_delivery_status, verified_context
+from analysis_delivery_adapter import register_analysis_report, analysis_delivery_status, verified_context
 
 # Record only actual local phase calls; waiting for an external Agent remains unmeasured.
 prepare_audio = timed_phase("prepare_audio")(prepare_audio)
@@ -68,13 +68,16 @@ def _main(argv: list[str] | None = None) -> int:
     if not args or args[0] in {"-h", "--help"}:
         print("usage: run.py acquire|prepare-audio|import-transcript|mark-unavailable|finalize-scripts|render-script-report|<collector command> ...")
         print("collector commands: collect, status, validate, runtime-check, list-accounts, schema, build-facts, render-overview, workflow, analyze")
-        print("analysis delivery: analysis-page, analysis-status, render-analysis-report --analysis-root PATH")
+        print("analysis delivery: analysis-page, analysis-status, register-analysis-report --analysis-root PATH")
         return 0
-    if args[0] in {"analysis-page", "analysis-status", "render-analysis-report"}:
+    if args[0] in {"analysis-page", "analysis-status", "register-analysis-report"}:
         parser = argparse.ArgumentParser(prog=f"run.py {args[0]}")
         parser.add_argument("--analysis-root", required=True)
         if args[0] == "analysis-page":
             parser.add_argument("--page", type=int, required=True)
+        if args[0] == "register-analysis-report":
+            parser.add_argument("--revision")
+            parser.add_argument("--format", choices=("html", "markdown", "text"))
         parsed = parser.parse_args(args[1:])
         try:
             root = external_runtime_path(parsed.analysis_root, label="analysis directory")
@@ -82,7 +85,7 @@ def _main(argv: list[str] | None = None) -> int:
                 verified_context(root)
                 reply = read_page(root, parsed.page)
             else:
-                reply = (analysis_delivery_status if args[0] == "analysis-status" else render_analysis_delivery)(root)
+                reply = analysis_delivery_status(root) if args[0] == "analysis-status" else register_analysis_report(root, parsed.revision, parsed.format)
             print(json.dumps(reply, ensure_ascii=False, indent=2))
             return 0
         except (OSError, ValueError, KeyError) as exc:

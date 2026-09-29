@@ -1066,12 +1066,12 @@ def _workflow_output_path(run_dir, analysis_id, output):
     return path
 
 
-def _render_workflow_delivery(root):
+def _prepare_workflow_delivery(root):
     try:
-        from .analysis_delivery_adapter import render_analysis_delivery
+        from .analysis_delivery_adapter import prepare_host_report_handoff
     except ImportError:
-        from analysis_delivery_adapter import render_analysis_delivery
-    return render_analysis_delivery(root)
+        from analysis_delivery_adapter import prepare_host_report_handoff
+    return prepare_host_report_handoff(root)
 
 
 @timed_phase("validate_and_publish_analysis_inputs")
@@ -1376,7 +1376,7 @@ def main(argv=None):
                     raise
                 print(json.dumps({
                     "status": "analysis_completed",
-                    "delivery": _render_workflow_delivery(context_root),
+                    "delivery": _prepare_workflow_delivery(context_root),
                     "report_path": str(_analysis_output_paths(output)["report"]),
                     "analysis_result_path": str(_analysis_output_paths(output)["result"]),
                     "model_analysis_request_path": str(_analysis_output_paths(output)["request"]),

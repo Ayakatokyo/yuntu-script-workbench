@@ -7,8 +7,8 @@ import pytest
 from test_analysis_workflow import _make_ready_run, _selection_result
 from scripts import collector
 from scripts.analysis_workflow import prepare_fact_selection_handoff, apply_fact_selection_result, prepare_model_analysis_handoff
-from scripts.analysis_delivery import read, read_page, verify_delivery
-from scripts.analysis_delivery_adapter import analysis_delivery_status, render_analysis_delivery
+from scripts.analysis_delivery import read, read_page, verify_delivery, register_host_report
+from scripts.analysis_delivery_adapter import analysis_delivery_status, register_analysis_report
 from scripts.workflow_state import analysis_context_dir, get_analysis_status
 
 
@@ -20,6 +20,27 @@ def prepared(tmp_path):
     apply_fact_selection_result(run, aid, _selection_result(request["host_context"]["run_id"]))
     prepare_model_analysis_handoff(run, aid)
     return run, analysis_context_dir(run, aid)
+
+
+def test_report_revisions_and_text_formats_keep_old_receipts(tmp_path):
+    root = tmp_path / "analysis-1"
+    root.mkdir()
+    (root / "facts.json").write_text('{"fact":1}')
+    identity = {"runId": "run-1", "analysisId": root.name}
+    first = root / "analysis-report/revisions/0001"
+    first.mkdir(parents=True)
+    (first / "report.md").write_text("# 首版\n有来源的发现。")
+    register_host_report(root, identity, ["facts.json"], "0001", "markdown")
+    saved = (first / "receipt.json").read_bytes()
+    second = root / "analysis-report/revisions/0002"
+    second.mkdir()
+    (second / "report.txt").write_text("修订后的简明结论")
+    assert register_host_report(root, identity, ["facts.json"], "0002", "text")["revision"] == "0002"
+    assert (first / "receipt.json").read_bytes() == saved
+    assert len(verify_delivery(root)["revisionHistory"]) == 2
+    (first / "report.md").write_text("偷偷改动")
+    with pytest.raises(ValueError, match="output"):
+        verify_delivery(root)
 
 
 def test_pages_preserve_original_indices_and_reject_source_changes(tmp_path):
@@ -40,10 +61,10 @@ def test_pages_preserve_original_indices_and_reject_source_changes(tmp_path):
         analysis_delivery_status(root)
 
 
-def test_workflow_report_is_verified_recoverable_and_bound(tmp_path):
+def test_workflow_host_report_is_bound_and_assets_checked(tmp_path):
     run, root = prepared(tmp_path)
     first = read_page(root, 1)["records"][0]
-    result = {"section": "material_ranking", "findings": [{"claim": "原样值<script>zero</script>", "type": "fact", "confidence": "high",
+    result = {"section": "material_ranking", "findings": [{"claim": "真实曝光指标", "type": "fact", "confidence": "high",
               "fact_refs": [first["fact_ref"]], "field_refs": {first["fact_ref"]: ["metrics.show_cnt"]}}]}
     result_path = tmp_path / "result.json"
     payload = {"_handoff": read(root / "result-template.json")["_handoff"],
@@ -58,22 +79,30 @@ def test_workflow_report_is_verified_recoverable_and_bound(tmp_path):
     assert not (root / "analysis-report/receipt.json").exists()
     result_path.write_text(json.dumps(payload))
     assert collector.main(args) == 0
-    assert analysis_delivery_status(root)["reportVerified"]
-    report = root / "analysis-report/index.html"
-    original = report.read_text()
-    assert "<script>" not in original and "&lt;script&gt;" in original
-    report.write_text("damaged")
-    with pytest.raises(ValueError):
+    assert analysis_delivery_status(root)["deliveryStatus"] == "awaiting_host_report"
+    assert not (root / "analysis-report/index.html").exists()
+    handoff = read(root / "host-report-handoff.json")
+    assert handoff["businessQuestion"] == "找出曝光高但转化差的素材"
+    assert len(read(root / handoff["analysisResult"]["path"])["results"]) == 2
+    folder = root / "analysis-report"
+    folder.mkdir()
+    (folder / "index.html").write_text("<html><aside>样本边界</aside><main><link rel='stylesheet' href='assets/report.css'></main></html>")
+    with pytest.raises(ValueError, match="asset missing"):
+        register_analysis_report(root)
+    (folder / "assets").mkdir()
+    (folder / "assets/report.css").write_text("main{color:teal}")
+    assert register_analysis_report(root)["reportVerified"]
+    assert verify_delivery(root)["producer"] == "conversation_host"
+    (folder / "assets/report.css").write_text("main{color:red}")
+    with pytest.raises(ValueError, match="output"):
         verify_delivery(root)
-    render_analysis_delivery(root)
-    assert report.read_text() == original
     status = get_analysis_status(run, root.name)
     path = Path(status["state"]["metadata"]["result_path"])
-    payload = read(path)
-    payload["results"][0]["findings"][0]["claim"] = "changed but otherwise valid"
-    path.write_text(json.dumps(payload))
-    with pytest.raises(ValueError, match="hash mismatch"):
-        render_analysis_delivery(root)
+    result_data = read(path)
+    result_data["results"][0]["findings"][0]["claim"] = "changed but otherwise valid"
+    path.write_text(json.dumps(result_data))
+    with pytest.raises(ValueError, match="hash mismatch|input changed"):
+        analysis_delivery_status(root)
 
 
 def test_remote_failure_keeps_cause_and_never_resubmits():

@@ -1,14 +1,14 @@
-"""Yuntu adapters for verified analysis paging and HTML delivery."""
+"""Yuntu adapters for verified analysis paging and host report handoff."""
 from pathlib import Path
 
 try:
-    from .analysis_delivery import read, sha, prepare_pages, verify_pages, render_delivery, verify_delivery, timed_phase
-    from .analysis_result import validate_analysis_result, AnalysisResultValidationError, _field_value
+    from .analysis_delivery import read, sha, write, prepare_pages, verify_pages, register_host_report, verify_delivery, has_report_receipt, timed_phase
+    from .analysis_result import validate_analysis_result, AnalysisResultValidationError
     from .analysis_facts import build_fact_index, execute_fact_selection
     from .fact_selection import FactSelectionSpec
 except ImportError:
-    from analysis_delivery import read, sha, prepare_pages, verify_pages, render_delivery, verify_delivery, timed_phase
-    from analysis_result import validate_analysis_result, AnalysisResultValidationError, _field_value
+    from analysis_delivery import read, sha, write, prepare_pages, verify_pages, register_host_report, verify_delivery, has_report_receipt, timed_phase
+    from analysis_result import validate_analysis_result, AnalysisResultValidationError
     from analysis_facts import build_fact_index, execute_fact_selection
     from fact_selection import FactSelectionSpec
 
@@ -43,8 +43,7 @@ def verified_context(root):
     return index, build_fact_index(selected)
 
 
-@timed_phase("render_analysis_report")
-def render_analysis_delivery(root):
+def _completed_result(root):
     root = Path(root).resolve()
     index, facts = verified_context(root)
     # Result path is persisted by the workflow completion gate, including custom output names.
@@ -63,23 +62,44 @@ def render_analysis_delivery(root):
         raise ValueError("completed analysis result hash mismatch or legacy result requires a new analysis")
     if result.get("analysis_id") != root.name or result.get("run_id") != index["identity"]["runId"]:
         raise ValueError("analysis result identity mismatch")
-    cards, gaps = [], []
-    labels = {"fact": "事实", "inference": "推断", "recommendation": "待验证建议"}
     for section in result["results"]:
         errors = validate_analysis_result(section, facts)
         if errors:
             raise AnalysisResultValidationError(errors)
-        gaps.extend(section.get("gaps", []))
-        for finding in section["findings"]:
-            evidence = []
-            for ref in finding["fact_refs"]:
-                record = facts[ref]
-                for field in finding.get("field_refs", {}).get(ref, list(record)):
-                    evidence.append({"material": record.get("material_name") or record.get("title") or record.get("material_id") or "所选事实",
-                                     "field": {"script_text": "脚本正文", "metrics.show_cnt": "曝光次数", "metrics.cvr": "转化率"}.get(field, field), "value": _field_value(record, field), "isMetric": field.startswith("metrics."), "fact_ref": ref})
-            cards.append({"claim": finding["claim"], "type": labels[finding["type"]], "evidence": evidence})
-    return render_delivery(root, "云图脚本分析", index["identity"], cards, gaps + ["指标关联不代表脚本写法导致投放效果。"],
-                           [str(result_path.relative_to(root)), "handoff-index.json", "selected-fact-context.json"])
+    return index, result_path, result
+
+
+def prepare_host_report_handoff(root):
+    root = Path(root).resolve()
+    index, result_path, _result = _completed_result(root)
+    selected = root / "selected-fact-context.json"
+    input_path = root / "analysis-input.json"
+    handoff_path = root / "host-report-handoff.json"
+    write(handoff_path, {"schemaVersion": 1, "identity": index["identity"],
+                         "businessQuestion": read(input_path)["business_question"],
+                         "analysisResult": {"path": str(result_path.relative_to(root)), "sha256": sha(result_path)},
+                         "selectedFacts": {"path": selected.name, "sha256": sha(selected)},
+                         "factPages": {"path": "handoff-index.json", "sha256": sha(root / "handoff-index.json")},
+                         "guidance": "宿主用已核验事实和业务问题独立组织回答；results 是审计辅助，不限制报告章节与结论数。新增事实通过现有事实选择和读取路径核对，不重新采集。报告可选 HTML、Markdown 或纯文本，保留引用与缺口。"})
+    return {"status": "analysis_completed", "deliveryStatus": "awaiting_host_report", "reportVerified": False,
+            "nextAction": "create_and_register_host_report", "handoffPath": str(handoff_path)}
+
+
+@timed_phase("register_host_report")
+def register_analysis_report(root, revision=None, report_format=None):
+    root = Path(root).resolve()
+    index, result_path, _result = _completed_result(root)
+    handoff = read(root / "host-report-handoff.json")
+    if handoff.get("identity") != index["identity"]:
+        raise ValueError("host report handoff identity mismatch")
+    for key in ("analysisResult", "selectedFacts", "factPages"):
+        source = handoff[key]
+        if sha(root / source["path"]) != source["sha256"]:
+            raise ValueError("host report handoff source hash mismatch: " + key)
+    return register_host_report(root, index["identity"],
+                                ["host-report-handoff.json", str(result_path.relative_to(root)),
+                                 "handoff-index.json", "selected-fact-context.json", "analysis-input.json"],
+                                revision=revision, report_format=report_format)
 
 
 def analysis_delivery_status(root):
@@ -89,8 +109,14 @@ def analysis_delivery_status(root):
     except ImportError:
         from workflow_state import get_analysis_status
     status = get_analysis_status(root.parent.parent, root.name)
-    index = verified_context(root)[0] if (root / "handoff-index.json").exists() else None
-    report = verify_delivery(root) if (root / "analysis-report/receipt.json").exists() else None
+    if status["stage"] == "analysis_completed" and (root / "handoff-index.json").exists():
+        index = _completed_result(root)[0]
+    else:
+        index = verified_context(root)[0] if (root / "handoff-index.json").exists() else None
+    report = verify_delivery(root) if has_report_receipt(root) else None
     return {"status": status["stage"], "analysisId": root.name, "handoff": "verified" if index else "not_generated",
-            "pageCount": len(index["pages"]) if index else None, "deliveryStatus": "completed" if report else "not_generated",
-            "reportVerified": bool(report), "nextAction": "deliver_report" if report else ("render-analysis-report" if status["stage"] == "analysis_completed" else "continue_workflow")}
+            "pageCount": len(index["pages"]) if index else None,
+            "deliveryStatus": ("legacy_completed" if report.get("schemaVersion") == 1 else "completed") if report else ("awaiting_host_report" if status["stage"] == "analysis_completed" else "not_generated"),
+            "reportVerified": bool(report), "reportPath": report.get("reportPath") if report else None,
+            "reportRevisions": report.get("revisionHistory", []) if report else [],
+            "nextAction": "deliver_report" if report else ("create_and_register_host_report" if status["stage"] == "analysis_completed" else "continue_workflow")}
