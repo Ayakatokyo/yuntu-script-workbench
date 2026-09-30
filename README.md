@@ -9,7 +9,7 @@
 - 测试：`python3 -B tools/test.py`
 - 构建：`python3 -B tools/build.py`，正式文件以 [packaging.json](packaging.json) 为准
 
-`acquire` 默认在调用方当前目录的 `云图素材脚本数据/run-.../` 建立本次运行目录，完成采集并把缺失平台脚本的视频音轨保存到 `audio/by-video/`；抽取临时文件放在音频目标目录，避免跨设备移动。`transcripts/manifest.json` 列出待 Agent 理解的音频；Agent 将完整工具回复和纯转写文本各存为 UTF-8 文件，使用 `import-transcript --video-sha ... --response-file ... --text-file ...` 导入。识别后仍无可用文本时，使用 `mark-unavailable --video-sha ... --response-file ... --review-note ...` 记录可追溯缺口；未经处理的音频仍阻断 `finalize-scripts`。最终 `script-report/index.html` 是只展示已获详情素材的单页脚本工作台：折叠展示取数与选材条件、内容公式分布，主体并列素材列表、核心数据与完整正文、当前素材内容公式。一级柱图保持单行；二级环图和图例居中并按网格排列。页面不显示全量/详情按钮、素材榜单、素材搜索/来源筛选或独立来源原句区。品牌分类筛选继续基于已核验事实 ID，属于标题规则分类，不视为平台权威品牌归属。完整榜单及详情事实仍保存在 `report.json` 和事实清单中，供来源校验与第二阶段使用。同一视频 SHA 去重，平台原文始终优先，转写无可靠时间码。
+`acquire` 默认在调用方当前目录的 `云图素材脚本数据/run-.../` 建立本次运行目录，完成采集并把缺失平台脚本的视频音轨保存到 `audio/by-video/`；抽取临时文件放在音频目标目录，避免跨设备移动。`transcripts/manifest.json` 列出待 Agent 理解的音频；Agent 将完整工具回复和纯转写文本各存为 UTF-8 文件，使用 `import-transcript --video-sha ... --response-file ... --text-file ...` 导入。识别后仍无可用文本时，使用 `mark-unavailable --video-sha ... --response-file ... --review-note ...` 记录可追溯缺口；未经处理的音频仍阻断 `finalize-scripts`。最终 `script-report/index.html` 是只展示已获详情素材的单页脚本工作台：折叠展示取数与选材条件、内容公式分布，主体并列素材列表、核心数据与完整正文、当前素材内容公式。一级柱图保持单行；二级环图和图例居中并按网格排列。页面不显示全量/详情按钮、素材榜单、素材搜索/来源筛选；分布图下方设独立全宽的“内容公式与原句”区块，按一二级公式筛选详情素材和逐字原句，点击可定位完整脚本；一二级公式分区显示，原句每页四条、桌面按 2×2 排列并可翻页。品牌分类筛选继续基于已核验事实 ID，属于标题规则分类，不视为平台权威品牌归属。完整榜单及详情事实仍保存在 `report.json` 和事实清单中，供来源校验与第二阶段使用。同一视频 SHA 去重，平台原文始终优先，转写无可靠时间码。
 
 运行数据、客户视频与音频、转写结果、凭证和模型服务回复不入 Git 或 ZIP。旧运行目录中的 `asr/` 文件作为历史数据保留，不由新版流程继续生成或改写。在线 RPA、平台音频工具及目标平台安装须分别实测；本地离线测试不代表这些步骤已验收。
 
