@@ -1,6 +1,7 @@
 short-description: "采集云图素材、补全缺失脚本并支持自定义分析"
 tags:
   - 云图
+  - 脚本
 requires:
   env:
     - ENV_BACKEND_HOST
