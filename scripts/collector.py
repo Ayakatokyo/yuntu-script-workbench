@@ -827,6 +827,7 @@ def _parser():
     commands.add_parser("self-test", help="Run offline connector checks")
     status_parser = commands.add_parser("status", help="Read collection lifecycle state")
     status_parser.add_argument("--output-dir", required=True)
+    status_parser.add_argument("--summary", action="store_true", help="omit task payloads and detailed histories; keep counts, gate and artifact paths")
     validate_parser = commands.add_parser("validate", help="Validate and print resolved configuration")
     validate_parser.add_argument("--query-spec", required=True)
     validate_parser.add_argument("--highlight-spec")
@@ -859,7 +860,7 @@ def _parser():
         "workflow", help="Run phase-two fact selection and current-model analysis handoffs"
     )
     workflow_parser.add_argument("--run-dir", required=True)
-    workflow_parser.add_argument("--business-question", required=True)
+    workflow_parser.add_argument("--business-question", help="required for a new analysis; resumes reuse and verify the saved question")
     workflow_parser.add_argument("--analysis-id", help="Resume one isolated phase-two analysis context")
     workflow_parser.add_argument("--fact-selection-result")
     workflow_parser.add_argument("--analysis-result", help="Optional current-model AnalysisResult JSON path")
@@ -1138,6 +1139,22 @@ def _analysis_pipeline(run_dir, spec_path=None, result_path=None, input_payload=
     return report, result_document, packet, context["request"]
 
 
+def check_workflow_result(run_dir, analysis_id, result_path):
+    """Read-only preflight using the same pipeline as workflow publication."""
+    from analysis_delivery_adapter import verified_context
+    root = analysis_context_dir(Path(run_dir), analysis_id)
+    if get_analysis_status(run_dir, analysis_id)["stage"] not in {"facts_selected", "analysis_failed"}:
+        raise ValueError("analysis must be awaiting a model result")
+    verified_context(root)
+    context = _workflow_analysis_context(run_dir, analysis_id)
+    # The publishing wrapper appends execution events; the underlying validation
+    # implementation is identical and keeps this diagnostic command read-only.
+    _report, result, _packet, _request = _analysis_pipeline.__wrapped__(run_dir, result_path=result_path, context=context)
+    return {"status": "validated", "checkOnly": True, "analysisId": analysis_id,
+            "findingCount": sum(len(section.get("findings", [])) for section in result["results"]),
+            "nextAction": "workflow --analysis-result", "published": False}
+
+
 def _analysis_output_paths(output_path):
     output = Path(output_path)
     return {
@@ -1268,7 +1285,13 @@ def main(argv=None):
             if collection_status is None:
                 raise RpaConnectorError("batch status support is unavailable")
             output = collection_status(output_dir=args.output_dir)
-            output["ready_receipt"] = build_ready_receipt(args.output_dir)
+            if args.summary:
+                output = {key: output.get(key) for key in ("status", "collection_status", "ready_for_analysis",
+                          "runId", "rpa_paused", "firstBatchCsvGate", "stages", "evidencePaths", "facts_status")}
+                output["runDir"] = args.output_dir
+                output["nextAction"] = "inspect_failure_evidence_without_resubmitting" if output["rpa_paused"] or output["collection_status"] != "success" else "prepare-audio_or_read_script_report"
+            else:
+                output["ready_receipt"] = build_ready_receipt(args.output_dir)
             print(json.dumps(output, ensure_ascii=False, indent=2))
             return 0
         if args.command == "retry-highlights":
@@ -1287,6 +1310,14 @@ def main(argv=None):
             }, ensure_ascii=False, indent=2))
             return 0
         if args.command == "workflow":
+            if args.analysis_id:
+                saved = json.loads((analysis_context_dir(args.run_dir, args.analysis_id) / "analysis-input.json").read_text(encoding="utf-8"))
+                question = saved.get("business_question")
+                if not question or (args.business_question is not None and args.business_question != question):
+                    raise ValueError("business question differs from saved analysis; start a new analysis for a new question")
+                args.business_question = question
+            elif not args.business_question or not args.business_question.strip():
+                raise ValueError("--business-question is required for a new workflow analysis")
             if not args.fact_selection_result and not args.analysis_result:
                 if args.analysis_id:
                     context_status = get_analysis_status(args.run_dir, args.analysis_id)

@@ -12,17 +12,19 @@ import sys
 import uuid
 import time
 
-from collector import main as collector_main
+from collector import main as collector_main, check_workflow_result
 from fact_packages import FactPackageError, build_fact_packages
 from runtime_paths import RuntimePathError, external_runtime_path
 from script_report import ScriptReportError, write_script_report
-from script_transcription import TranscriptionError, prepare_audio, import_transcript, mark_unavailable, finalize_transcripts
+from script_transcription import TranscriptionError, prepare_audio, import_transcript, import_transcripts, mark_unavailable, finalize_transcripts
+from fact_catalog import describe_analysis
 from analysis_delivery import read_page, timed_phase
 from analysis_delivery_adapter import register_analysis_report, analysis_delivery_status, verified_context
 
 # Record only actual local phase calls; waiting for an external Agent remains unmeasured.
 prepare_audio = timed_phase("prepare_audio")(prepare_audio)
 import_transcript = timed_phase("import_transcript")(import_transcript)
+import_transcripts = timed_phase("import_transcripts")(import_transcripts)
 mark_unavailable = timed_phase("mark_unavailable")(mark_unavailable)
 finalize_transcripts = timed_phase("finalize_transcripts")(finalize_transcripts)
 build_fact_packages = timed_phase("build_facts")(build_fact_packages)
@@ -66,15 +68,32 @@ def _acquire_run_dir(output_root: str | None, output_dir: str | None) -> Path:
 def _main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in {"-h", "--help"}:
-        print("usage: run.py acquire|prepare-audio|import-transcript|mark-unavailable|finalize-scripts|render-script-report|<collector command> ...")
+        print("usage: run.py acquire|prepare-audio|import-transcript|import-transcripts|mark-unavailable|finalize-scripts|render-script-report|<collector command> ...")
+        print("read-only preflight: describe-analysis --run-dir PATH; check-analysis-result --analysis-root PATH --result PATH")
         print("collector commands: collect, status, validate, runtime-check, list-accounts, schema, build-facts, render-overview, workflow, analyze")
         print("analysis delivery: analysis-page, analysis-status, register-analysis-report --analysis-root PATH")
         return 0
-    if args[0] in {"analysis-page", "analysis-status", "register-analysis-report"}:
+    if args[0] == "describe-analysis":
+        parser = argparse.ArgumentParser(prog="run.py describe-analysis")
+        parser.add_argument("--run-dir", required=True)
+        parser.add_argument("--package", action="append")
+        parser.add_argument("--field", action="append")
+        parsed = parser.parse_args(args[1:])
+        try:
+            root = external_runtime_path(parsed.run_dir, label="run directory")
+            print(json.dumps(describe_analysis(root, parsed.package, parsed.field), ensure_ascii=False, indent=2))
+            return 0
+        except (OSError, ValueError, KeyError) as exc:
+            print(json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
+            return 2
+    if args[0] in {"analysis-page", "analysis-status", "register-analysis-report", "check-analysis-result"}:
         parser = argparse.ArgumentParser(prog=f"run.py {args[0]}")
         parser.add_argument("--analysis-root", required=True)
+        if args[0] == "check-analysis-result":
+            parser.add_argument("--result", required=True)
         if args[0] == "analysis-page":
             parser.add_argument("--page", type=int, required=True)
+            parser.add_argument("--end-page", type=int, help="read an inclusive page range with one source verification")
         if args[0] == "register-analysis-report":
             parser.add_argument("--revision")
             parser.add_argument("--format", choices=("html", "markdown", "text"))
@@ -82,8 +101,10 @@ def _main(argv: list[str] | None = None) -> int:
         try:
             root = external_runtime_path(parsed.analysis_root, label="analysis directory")
             if args[0] == "analysis-page":
-                verified_context(root)
-                reply = read_page(root, parsed.page)
+                index, _facts = verified_context(root)
+                reply = read_page(root, parsed.page, parsed.end_page, verified_index=index)
+            elif args[0] == "check-analysis-result":
+                reply = check_workflow_result(root.parent.parent, root.name, parsed.result)
             else:
                 reply = analysis_delivery_status(root) if args[0] == "analysis-status" else register_analysis_report(root, parsed.revision, parsed.format)
             print(json.dumps(reply, ensure_ascii=False, indent=2))
@@ -91,7 +112,7 @@ def _main(argv: list[str] | None = None) -> int:
         except (OSError, ValueError, KeyError) as exc:
             print(json.dumps({"status": "failed", "error": str(exc)}, ensure_ascii=False), file=sys.stderr)
             return 2
-    if args[0] not in {"acquire", "prepare-audio", "import-transcript", "mark-unavailable", "finalize-scripts", "render-script-report"}:
+    if args[0] not in {"acquire", "prepare-audio", "import-transcript", "import-transcripts", "mark-unavailable", "finalize-scripts", "render-script-report"}:
         if args[0] in {"workflow", "analyze"}:
             try:
                 _require_completed_report(args)
@@ -108,6 +129,8 @@ def _main(argv: list[str] | None = None) -> int:
         destination.add_argument("--output-dir", help="exact run directory for an existing workflow")
     else:
         parser.add_argument("--run-dir", required=True)
+        if args[0] == "import-transcripts":
+            parser.add_argument("--batch-file", required=True, help="JSON object with items; relative file paths resolve beside this batch file")
         if args[0] in {"import-transcript", "mark-unavailable"}:
             parser.add_argument("--video-sha", required=True, help="video SHA-256 from transcripts/manifest.json")
             if args[0] == "import-transcript":
@@ -140,6 +163,11 @@ def _main(argv: list[str] | None = None) -> int:
                               "transcription": manifest["counts"]}, ensure_ascii=False))
             if args[0] == "prepare-audio" or manifest["counts"].get("pending_agent"):
                 return 0
+        if args[0] == "import-transcripts":
+            stage = "import_transcripts"
+            manifest = import_transcripts(run_dir, batch_file=Path(parsed.batch_file))
+            print(json.dumps({"transcription": manifest["counts"]}, ensure_ascii=False))
+            return 0
         if args[0] == "import-transcript":
             stage = "import_transcript"
             manifest = import_transcript(run_dir, video_sha=parsed.video_sha,

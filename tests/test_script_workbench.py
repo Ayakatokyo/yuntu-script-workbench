@@ -10,7 +10,7 @@ from unittest import mock
 from scripts.fact_packages import FactPackageError, build_fact_packages
 from scripts.fact_catalog import build_fact_catalog
 from scripts.script_report import write_script_report
-from scripts.script_transcription import TranscriptionError, prepare_audio, import_transcript, mark_unavailable, finalize_transcripts
+from scripts.script_transcription import TranscriptionError, prepare_audio, import_transcript, import_transcripts, mark_unavailable, finalize_transcripts
 
 
 def write_json(path, value):
@@ -170,6 +170,47 @@ class ScriptWorkbenchTests(unittest.TestCase):
         response.write_text("实际口播", encoding="utf-8")
         imported = import_transcript(self.root, video_sha=video_sha, text_file=response, response_file=response)
         self.assertEqual(imported["counts"]["agent_transcribed"], 2)
+
+    def test_batch_import_shares_scans_and_preserves_provenance(self):
+        (self.root / "videos/3/source-video.mp4").write_bytes(b"another-video")
+        manifest, _ = self.prepare()
+        items = []
+        for i, item in enumerate(row for row in manifest["materials"] if row["status"] == "pending_agent"):
+            response = self.root / f"response-{i}.txt"
+            response.write_text(f"第{i}条实际口播", encoding="utf-8")
+            items.append({"video_sha": item["videoSha256"], "text_file": response.name, "response_file": response.name})
+        batch = self.root / "batch.json"
+        write_json(batch, {"items": items})
+        with mock.patch("scripts.script_transcription.prepare_audio", wraps=prepare_audio) as scan:
+            imported = import_transcripts(self.root, batch_file=batch)
+        self.assertEqual(scan.call_count, 2)  # Two scans for the whole batch, rather than two per video.
+        self.assertEqual(imported["counts"]["agent_transcribed"], 2)
+        finalize_transcripts(self.root)
+        build_fact_packages(self.root)
+        facts = json.loads((self.root / "facts/script.json").read_text())["records"]
+        self.assertEqual({r["script_text"] for r in facts if r["script_source"] == "agent_audio"}, {"第0条实际口播", "第1条实际口播"})
+        raw = self.root / "transcripts/raw" / f"{items[1]['video_sha']}.txt"
+        raw.write_text("tampered")
+        with self.assertRaisesRegex(TranscriptionError, "response_hash_mismatch"):
+            import_transcripts(self.root, batch_file=batch)
+
+    def test_batch_invalid_late_item_does_not_import_earlier_item(self):
+        (self.root / "videos/3/source-video.mp4").write_bytes(b"another-video")
+        manifest, _ = self.prepare()
+        pending = [row for row in manifest["materials"] if row["status"] == "pending_agent"]
+        good, empty = self.root / "good.txt", self.root / "empty.txt"
+        good.write_text("实际口播", encoding="utf-8")
+        empty.write_text(" ", encoding="utf-8")
+        items = [{"video_sha": row["videoSha256"], "text_file": path.name, "response_file": path.name}
+                 for row, path in zip(pending, [good, empty])]
+        batch = self.root / "batch.json"
+        write_json(batch, {"items": items})
+        with self.assertRaisesRegex(TranscriptionError, "transcript_text_empty"):
+            import_transcripts(self.root, batch_file=batch)
+        self.assertFalse((self.root / "transcripts/by-video").exists())
+        write_json(batch, {"items": [items[0], items[0]]})
+        with self.assertRaisesRegex(TranscriptionError, "duplicate_video"):
+            import_transcripts(self.root, batch_file=batch)
 
 
 if __name__ == "__main__":

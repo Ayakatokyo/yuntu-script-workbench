@@ -218,4 +218,35 @@ def build_fact_catalog(run_root: Path) -> FactCatalog:
     return FactCatalog(run_id, manifest.get("schema_version"), counts, fields, availability, paths, capabilities)
 
 
+def describe_analysis(run_root: Path, packages: list[str] | None = None, fields: list[str] | None = None) -> dict:
+    """Small, verified discovery view; does not select facts or change an analysis."""
+    try:
+        from .analysis_delivery import field_summary
+        from .analysis_result import _field_value, _field_available
+    except ImportError:
+        from analysis_delivery import field_summary
+        from analysis_result import _field_value, _field_available
+    root = Path(run_root).resolve()
+    catalog = build_fact_catalog(root)
+    labels = business_field_labels()
+    result = {}
+    for name in packages or ["script"]:
+        package = FactPackage(name)
+        if package not in catalog.package_paths:
+            raise ValueError(f"fact package unavailable: {name}")
+        known = catalog.fields[package]
+        wanted = fields or [field for field in known if "." not in field and field not in {
+            "source_paths", "data_availability", "audio_transcript", "brand_classification",
+            "brand_rule_version", "classification_reason", "classification_status"}]
+        unknown = set(wanted) - set(known)
+        if unknown:
+            raise ValueError(f"unknown fields in {name}: {', '.join(sorted(unknown))}")
+        records = _read(_safe_path(root, catalog.package_paths[package]))["records"]
+        result[name] = [field_summary(field, [(record.get("material_id"), _field_value(record, field),
+                                              _field_available(record, field)) for record in records],
+                                      label=labels.get(field)) for field in wanted]
+    return {"runId": catalog.run_id, "packages": result, "externalCalls": False,
+            "guidance": "样例仅供字段选型，不是完整正文。按业务问题提交事实选择；字段可用性与发布校验同口径。"}
+
+
 __all__ = ["FactCatalog", "build_fact_catalog", "business_field_labels", "businessize_text"]

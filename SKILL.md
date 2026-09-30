@@ -20,7 +20,7 @@ python "$SKILL_ROOT/scripts/run.py" acquire --shop-id "$AUTHORIZED_SHOP_ID" --qu
 python "$SKILL_ROOT/scripts/run.py" prepare-audio --run-dir "$RUN_DIR"
 ```
 
-`acquire` 结束时若有待处理音频，状态是 `awaiting_agent_transcripts`，不是报告完成。读取 `RUN_DIR/transcripts/manifest.json`，对 `pending_agent` 的**唯一视频 SHA**使用 Agent 原生 `batch_understand_files`，传入 `audioPath` 对应的绝对路径，`purpose` 要求“忠实转写中文口播，只返回实际听到的文字；保留品牌、人名、数字与促销表述；听不清时明确标记，不依据标题、画面或其他素材补写，不输出分析、摘要或虚构时间戳”。此工具由 Agent 调用，普通 Python 脚本不能调用；工具不可用或返回空结果时先保留待处理状态，不伪造脚本。可拆成较小批次重试；单次最多五条只是既有运行观察，并非确认的硬上限。相同视频 SHA 只识别一次。
+`acquire` 结束时若有待处理音频，状态是 `awaiting_agent_transcripts`，不是报告完成。读取 `RUN_DIR/transcripts/manifest.json`，对 `pending_agent` 的**唯一视频 SHA**使用 Agent 原生 `batch_understand_files`，按当前工具路径契约传入 `audioPath` 对应的可访问路径，`purpose` 要求“忠实转写中文口播，只返回实际听到的文字；保留品牌、人名、数字与促销表述；听不清时明确标记，不依据标题、画面或其他素材补写，不输出分析、摘要或虚构时间戳”。此工具由 Agent 调用，普通 Python 脚本不能调用；工具不可用或返回空结果时先保留待处理状态，不伪造脚本。可拆成较小批次重试；单次最多五条只是既有运行观察，并非确认的硬上限。相同视频 SHA 只识别一次。
 
 将每条工具的完整回复原样保存为 UTF-8 文件；若回复不只有口播，另存经核听整理的纯转写文本。按清单给出的 `videoSha256` 同时导入两份文件；回复本来只有口播时可对两个参数使用同一文件。导入只接受非空文本，并绑定本轮视频、音频和原始回复哈希；不得把模型说明当口播事实。
 
@@ -75,3 +75,36 @@ python "$SKILL_ROOT/scripts/run.py" analysis-status --analysis-root "$ANALYSIS_R
 ```
 
 登记前重新核对分析结果、来源及交接哈希；文件交付支持 `index.html`、`report.md` 或 `report.txt`，分别用 `--format html|markdown|text`。登记时检查正文非空、HTML/CSS/Markdown 本地资源可用且不越出该版目录，记录输入及每个输出文件 SHA-256。`deliveryStatus=completed`、`reportVerified=true` 表示本地文件通过完整性校验，不代替事实解释、视觉观感或用户验收。展示修改在同一分析下新增递增的四位 revision，旧文件和旧收据保持不变；涉及新事实的实质修订先用既有事实读取与选择路径核验，并更新相应审计结果或建立新分析，无需重跑采集。旧版无 revision 的宿主 HTML 可继续校验。历史固定报告的 v1 收据只读核验，标为 `legacy_completed`。阶段一固定素材汇总报告不变。宿主报告制作耗时单独记录。
+
+## 执行流程优化（2026-09-30）
+
+写分析计划前优先使用 `describe-analysis`，一次核对字段类型、可用数量和有来源的短样例；`--field` 可重复指定候选字段。样例用于选型，不作为正文或引用依据，完整文本仍从事实分页读取。不要仅凭字段名假定 `formula`、`detail`、`data` 的实际结构，也不要反复打印整个事实包。
+
+```bash
+python "$SKILL_ROOT/scripts/run.py" describe-analysis --run-dir "$RUN_DIR"
+python "$SKILL_ROOT/scripts/run.py" analysis-page --analysis-root "$ANALYSIS_ROOT" --page 1 --end-page 4
+python "$SKILL_ROOT/scripts/run.py" check-analysis-result --analysis-root "$ANALYSIS_ROOT" --result "$RESULT_JSON"
+```
+
+连续分页复用一次来源校验，保留完整原文与原始记录引用；按实际需要读取页范围，不一次展开全榜。`check-analysis-result` 为只读预检，复用正式发布的身份、输入哈希、字段与来源等门禁，不推进状态、不写回执或运行日志。仍需修正错误并正式发布；已预检通过不代表结果已发布。正式发布仍重新核验，不能用预检替代。
+
+文件写入及其依赖命令串行执行，确认写入完成后再读取、导入或发布。首次调用前检查 Python 与 requirements 依赖，缺失时按包内依赖安装；已有环境不重复安装。以命令业务输出的 `execution.wallSeconds` 或 `command_completed.wallSeconds` 判断耗时，异步任务还须取得终态，不将 Bash 的短等待窗口当总耗时。成功入口已有校验时不紧接重复全量 `verify`；失败诊断、产物变化或专项审计再运行。
+
+报告内容与样式仍由宿主自由组织。本轮不加入章节顺序或人群展示/分析要求。制作 HTML 时，在登记前检查最终交付目录的资源、脚本初始化与主要内容；具备渲染工具时实际打开交付入口，辅助区块错误局部显示可读缺口，业务主体缺失须修复后交付。截图、校验脚本与调试输出保存在交付目录之外；完成检查后再登记回执，登记后不增加或修改文件。声明已验证须区分文件完整性与实际渲染，不把资源/哈希校验通过当作页面验收通过。
+
+云图补充：`describe-analysis` 默认展示脚本包的字段概览，`--package` 可重复指定已有包；这只是诊断视图，不改变正式分析的选包规则。`workflow` 新建分析仍须传 `--business-question`；同一 `--analysis-id` 续跑可省略它，使用已经保存的问题。若显式传入不同问题则拒绝，应新建分析，不能改旧上下文的含义。
+
+`status --summary` 保留阶段、数量、首批门禁、暂停及产物路径，省略任务载荷与详细历史；原不带 `--summary` 的完整输出保留兼容。发生采集失败或持久暂停时读取失败证据，保留原状态；禁止清除 rejectedMaterials/taskRuns 或手工改阶段来恢复，不自动重提 RPA。
+
+Agent 转写仍按唯一视频 SHA 去重。批次的全部文本和原始回复先落盘，再一次执行：
+
+```bash
+python "$SKILL_ROOT/scripts/run.py" import-transcripts --run-dir "$RUN_DIR" --batch-file "$BATCH_JSON"
+python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR" --summary
+# 分析续跑示例，不重复输入原问题
+python "$SKILL_ROOT/scripts/run.py" workflow --run-dir "$RUN_DIR" --analysis-id "$ANALYSIS_ID" --analysis-result "$RESULT_JSON"
+```
+
+`BATCH_JSON` 格式：`{"items":[{"video_sha":"清单中的SHA256","text_file":"text.txt","response_file":"response.txt"}]}`。每条必须是不同的已准备视频 SHA，两个路径可为绝对路径，相对路径以批次 JSON 所在目录解析。整批先检查文件、编码、非空正文与来源身份，再逐条写入，最后刷新清单；全部条目共享前后两次扫描。输入校验失败不会导入先前条目；写盘 I/O 中断可能保留已完成条目，应读回核验后续跑。单条 `import-transcript` 保持兼容，最终平台原文优先与哈希核验不变。
+
+工具读取音频时使用 `transcripts/manifest.json` 的 `audioPath`，结合本次运行目录解析；按当前平台文件理解工具实际接受的路径格式传参，不假定所有宿主都接受绝对路径。路径问题只纠正路径，不重跑取数。空识别结果保留待处理或走已有人工复核缺口登记，不固化新的自动重试策略。

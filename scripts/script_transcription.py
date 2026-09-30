@@ -166,10 +166,8 @@ def prepare_audio(run_dir: Path, *, ffmpeg_bin: str | None = None) -> dict[str, 
     return manifest
 
 
-def import_transcript(run_dir: Path, *, video_sha: str, text_file: Path, response_file: Path) -> dict[str, Any]:
+def _prepare_transcript(root: Path, manifest: dict, *, video_sha: str, text_file: Path, response_file: Path) -> tuple:
     """Bind an Agent-produced transcript to the exact audio and video in this run."""
-    root = Path(run_dir).resolve()
-    manifest = prepare_audio(root)
     matching = [item for item in manifest["materials"] if item.get("videoSha256") == video_sha]
     if not matching or matching[0]["status"] not in {"pending_agent", "agent_transcribed", "agent_unavailable"}:
         raise TranscriptionError("video_not_pending_agent_transcription")
@@ -188,18 +186,60 @@ def import_transcript(run_dir: Path, *, video_sha: str, text_file: Path, respons
     if not text:
         raise TranscriptionError("transcript_text_empty")
     raw_path = root / "transcripts" / "raw" / f"{video_sha}.txt"
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(dir=raw_path.parent, delete=False) as output:
-        temporary = Path(output.name)
-        output.write(raw_bytes)
-    os.replace(temporary, raw_path)
     transcript = {"schemaVersion": 1, "status": "available", "provider": "agent_imported_audio_text",
                   "reportedTool": "batch_understand_files", "toolCallVerifiedByScript": False,
                   "modelName": None, "videoSha256": video_sha,
                   "audioSha256": matching[0]["audioSha256"], "rawResponsePath": raw_path.relative_to(root).as_posix(),
-                  "rawResponseSha256": _sha256(raw_path), "text": text, "timestampStatus": "unavailable"}
-    _write_json(root / "transcripts" / "by-video" / f"{video_sha}.json", transcript)
+                  "rawResponseSha256": hashlib.sha256(raw_bytes).hexdigest(), "text": text, "timestampStatus": "unavailable"}
+    return video_sha, raw_bytes, transcript
+
+
+def _import_items(run_dir: Path, items: list[dict]) -> dict[str, Any]:
+    root = Path(run_dir).resolve()
+    if not items or len({item["video_sha"] for item in items}) != len(items):
+        raise TranscriptionError("transcript_batch_empty_or_duplicate_video")
+    # Validate every input file before any shared scan or transcript write.
+    for item in items:
+        for key in ("text_file", "response_file"):
+            path = Path(item[key])
+            if not path.is_file() or path.stat().st_size > 1024 * 1024:
+                raise TranscriptionError(f"transcript_batch_input_missing_or_too_large:{key}")
+    manifest = prepare_audio(root)
+    prepared = [_prepare_transcript(root, manifest, **item) for item in items]
+    # Input/identity errors cannot leave an earlier item imported. I/O errors may
+    # leave completed items; their individual hashes remain verifiable on resume.
+    for video_sha, raw_bytes, transcript in prepared:
+        raw_path = root / transcript["rawResponsePath"]
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=raw_path.parent, delete=False) as output:
+            temporary = Path(output.name)
+            output.write(raw_bytes)
+        os.replace(temporary, raw_path)
+        _write_json(root / "transcripts" / "by-video" / f"{video_sha}.json", transcript)
     return prepare_audio(root)
+
+
+def import_transcript(run_dir: Path, *, video_sha: str, text_file: Path, response_file: Path) -> dict[str, Any]:
+    return _import_items(run_dir, [{"video_sha": video_sha, "text_file": text_file, "response_file": response_file}])
+
+
+def import_transcripts(run_dir: Path, *, batch_file: Path) -> dict[str, Any]:
+    """Import unique-video transcripts with two shared scans for the whole batch."""
+    batch_file = Path(batch_file).resolve()
+    payload = _read_json(batch_file)
+    items = payload.get("items")
+    if not isinstance(items, list) or not 1 <= len(items) <= 1000:
+        raise TranscriptionError("transcript_batch_items_required")
+    resolved = []
+    for item in items:
+        if not isinstance(item, dict) or set(item) != {"video_sha", "text_file", "response_file"}:
+            raise TranscriptionError("transcript_batch_item_fields_invalid")
+        if not all(isinstance(value, str) and value.strip() for value in item.values()):
+            raise TranscriptionError("transcript_batch_item_values_invalid")
+        resolved.append({"video_sha": item["video_sha"],
+                         "text_file": (batch_file.parent / item["text_file"]).resolve(),
+                         "response_file": (batch_file.parent / item["response_file"]).resolve()})
+    return _import_items(run_dir, resolved)
 
 
 def mark_unavailable(run_dir: Path, *, video_sha: str, response_file: Path, review_note: str) -> dict[str, Any]:
