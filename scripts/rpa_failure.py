@@ -21,4 +21,3 @@ class RemoteTaskError(RuntimeError):
         self.failure_details = {"taskGroupId": safe(task_group_id) if task_group_id else None,
                                 "errors": details, "retrySubmitted": False}
         super().__init__(safe(message) + (": " + json.dumps(details, ensure_ascii=False) if details else ""))
-
