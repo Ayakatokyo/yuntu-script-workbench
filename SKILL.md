@@ -32,7 +32,7 @@ python "$SKILL_ROOT/scripts/run.py" finalize-scripts --run-dir "$RUN_DIR"
 python "$SKILL_ROOT/scripts/run.py" status --output-dir "$RUN_DIR"
 ```
 
-`finalize-scripts` 在仍有待转写视频时拒绝生成最终报告；已复核的空结果由 `mark-unavailable` 形成可核验缺口，不断言音频无人声。完成后重建事实包并生成 `script-report/index.html`、`report.json` 和哈希收据。HTML 仅展示已获详情素材的筛选条件、脚本内容公式、单素材脚本、脚本片段库四个分区；不展示全量/详情切换或素材榜单。`report.json` 的完整榜单行与事实清单继续保存并校验，选材及第二阶段事实口径不变。公式页仍可按已核验品牌事实 ID 的标题规则分类筛选，切换后更新公式图；该分类不等于平台权威品牌归属。一级公式柱状图点击后联动二级环形图与图例；单素材核心数据的默认七项与自定义选择、内容公式来源定位与复制、片段原句搜索和跳转保持原交互。公式仅统计平台事实中的可读标签，Agent 文本不推断公式或时间码。无视频、无音轨等缺口保留展示。`render-script-report` 可在全部文本导入后重新生成报告；`--output-root` 与 `--output-dir` 互斥。
+`finalize-scripts` 在仍有待转写视频时拒绝生成最终报告；已复核的空结果由 `mark-unavailable` 形成可核验缺口，不断言音频无人声。完成后重建事实包并生成 `script-report/index.html`、`report.json` 和哈希收据。HTML 改为只展示已获详情素材的单页脚本工作台：顶部折叠取数与选材条件、详情内容公式分布，主体并列素材列表、当前素材核心数据与完整正文、当前素材内容公式。一级柱图保持单行，宽度不足时横向滚动；点击一级后以居中的二级环图与网格图例展示分布，并筛选左侧详情素材。页面不显示全量/详情切换、素材榜单、素材搜索/来源筛选或独立来源原句区。`report.json` 的完整榜单行与事实清单继续保存并校验，选材及第二阶段事实口径不变。品牌分类筛选仍基于已核验事实 ID 的标题规则，不等于平台权威品牌归属。单素材核心数据保留默认七项与当前素材自定义选择；点击二级公式步骤只定位完整正文中精确命中的来源原句。公式仅统计平台事实中的可读标签，Agent 文本不推断公式或时间码。无视频、无音轨等缺口保留展示。`render-script-report` 可在全部文本导入后重新生成报告；`--output-root` 与 `--output-dir` 互斥。
 
 异步执行 `acquire` 时要读取其终态和 `run-summary.json` / `batch-manifest.json`，不要仅依据同步 Bash 日志的 `exit_code`；调用 CLI 时保留原始进程退出码，避免用后续 `echo` 覆盖。CLI 错误会输出 `stage` 与 `runDir`，便于从同一运行目录补做音频准备或排查采集阶段。
 

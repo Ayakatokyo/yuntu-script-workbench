@@ -145,6 +145,11 @@ def write_script_report(run_dir: Path) -> dict:
         "rankingMetric": list_params.get("ranking_limit_type"),
         "targetTopN": contract.get("targetTopN"),
         "materialList": contract.get("materialList"),
+        "listParams": {key: value for key, value in list_params.items()
+                       if key not in {"industry", "date_type", "custom_start_date", "custom_end_date",
+                                      "ranking_limit_type", "brand_scope_type", "brands"}
+                       and not any(token in key.lower() for token in
+                                   ("shop", "account", "advertiser", "token", "secret", "credential", "auth"))},
         "brandScope": brand_scope,
         "brands": brands,
         "titleBrandUnmatchedCount": (sum(not any(brand in str(row["title"]) for brand in brands)

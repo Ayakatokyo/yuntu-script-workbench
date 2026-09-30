@@ -179,6 +179,10 @@
       "destination": "scripts/script_report_html.py"
     },
     {
+      "source": "scripts/script_workbench_page.py",
+      "destination": "scripts/script_workbench_page.py"
+    },
+    {
       "source": "scripts/script_transcription.py",
       "destination": "scripts/script_transcription.py"
     },
