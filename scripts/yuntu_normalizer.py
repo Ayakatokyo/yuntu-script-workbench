@@ -111,34 +111,6 @@ def _selection_group(raw):
     }
 
 
-def _script_segments(value):
-    if not isinstance(value, list):
-        return [], _availability(value, has_values=False)
-    segments = []
-    previous_end = -1
-    for item in value:
-        if not isinstance(item, dict):
-            return [], {"available": False, "missing_reason": "invalid_timestamped_segments"}
-        start_ms = _number(
-            item["startMs"] if "startMs" in item else item.get("start_ms")
-        )
-        end_ms = _number(item["endMs"] if "endMs" in item else item.get("end_ms"))
-        text = _text(item.get("text") or item.get("scriptText") or item.get("script_text"))
-        if (
-            start_ms is None
-            or end_ms is None
-            or start_ms < 0
-            or end_ms <= start_ms
-            or start_ms < previous_end
-            or not text
-        ):
-            return [], {"available": False, "missing_reason": "invalid_timestamped_segments"}
-        normalized = {"start_ms": int(start_ms), "end_ms": int(end_ms), "text": text}
-        segments.append(normalized)
-        previous_end = normalized["end_ms"]
-    return segments, _availability(value, has_values=bool(segments))
-
-
 def normalize_list_records(raw_records, *, source_path):
     if not isinstance(raw_records, list):
         raise YuntuNormalizeError("list records must be a list")
@@ -540,7 +512,8 @@ def normalize_detail_records(
              if video_script.get(key) not in (None, "")),
             None,
         )
-        if isinstance(video_script, dict) else video_script
+        if isinstance(video_script, dict)
+        else video_script if isinstance(video_script, str) else None
     )
     script_text_value = (
         raw.get("scriptText") or raw.get("script_text") or flat_script_text
@@ -558,14 +531,6 @@ def normalize_detail_records(
         creative_breakdown = _normalized_creative_breakdown(creative_breakdown)
     elif creative_breakdown is None and flat_schema:
         creative_breakdown = _flat_creative_breakdown(raw)
-    script_segment_value = raw.get("scriptSegments") or raw.get("script_segments")
-    if isinstance(video_script, dict):
-        script_segment_value = video_script.get("segments") or video_script.get("scriptSegments") or script_segment_value
-    elif isinstance(video_script, list):
-        script_segment_value = video_script
-    script_segments, script_segments_availability = _script_segments(
-        script_segment_value
-    )
     date_type = (
         _flat_detail_value(raw, "dateType") or raw.get("dateType")
         or raw.get("dateRangeType") or raw.get("date_range_type") or core_data.get("dateType")
@@ -621,7 +586,8 @@ def normalize_detail_records(
         "selection_group": selection_group,
         "script_text": _text(script_text_value),
         "content_formula": content_formula,
-        "script_segments": script_segments,
+        # Retain the fact contract's empty field; timestamp parsing is unsupported.
+        "script_segments": [],
         "creative_breakdown": creative_breakdown,
         "trend_series": trend_series,
         "high_points": high_points,
@@ -652,11 +618,7 @@ def normalize_detail_records(
             "creative_breakdown": _availability(
                 creative_breakdown, has_values=creative_breakdown is not None
             ),
-            "script_segments": (
-                {"available": False, "missing_reason": "parse_failed"}
-                if "videoScript" in parse_failed_fields
-                else script_segments_availability
-            ),
+            "script_segments": {"available": False, "missing_reason": "source_empty"},
         },
         "source_paths": {"detail": source_path},
     }

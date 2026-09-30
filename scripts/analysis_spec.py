@@ -11,6 +11,8 @@ AVAILABLE_SECTIONS = (
     "audience",
     "script",
     "highlight_frames",
+    "content_tags",
+    "interaction_series",
 )
 REPORT_MODES = {"standard", "standard_with_custom_sections"}
 BUSINESS_QUESTION_SOURCES = {"user", "user_confirmed_default"}

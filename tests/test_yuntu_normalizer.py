@@ -259,9 +259,6 @@ class YuntuNormalizerTests(unittest.TestCase):
                 "touchpointName": "信息流",
                 "scriptText": "前 3 秒提出肠胃痛点。",
                 "contentFormula": {"hook": "痛点", "proof": "成分"},
-                "scriptSegments": [
-                    {"startMs": 0, "endMs": 3000, "text": "肠胃总不舒服？"}
-                ],
                 "trends": [],
             },
             material_id="101",
@@ -272,11 +269,33 @@ class YuntuNormalizerTests(unittest.TestCase):
         self.assertEqual(record["selection_group"], expected_group)
         self.assertEqual(record["script_text"], "前 3 秒提出肠胃痛点。")
         self.assertEqual(record["content_formula"]["hook"], "痛点")
-        self.assertEqual(
-            record["script_segments"],
-            [{"start_ms": 0, "end_ms": 3000, "text": "肠胃总不舒服？"}],
-        )
-        self.assertTrue(record["data_availability"]["script_segments"]["available"])
+        self.assertEqual(record["script_segments"], [])
+        self.assertFalse(record["data_availability"]["script_segments"]["available"])
+
+    def test_removed_timestamp_inputs_do_not_become_script_facts(self):
+        normalizer = load_module()
+        segments = [{"startMs": 0, "endMs": 3000, "text": "未支持的分段"}]
+        for extra in (
+            {"scriptSegments": segments},
+            {"script_segments": segments},
+            {"videoScript": {"segments": segments}},
+            {"videoScript": {"scriptSegments": segments}},
+            {"videoScript": segments},
+        ):
+            with self.subTest(extra=extra):
+                raw = {"materialId": "101", **extra}
+                record = normalizer.normalize_detail_records(
+                    raw, material_id="101", source_path="raw-csv/details/101.csv"
+                )
+                self.assertEqual(record["script_text"], "")
+                self.assertEqual(record["script_segments"], [])
+                self.assertFalse(record["data_availability"]["script_segments"]["available"])
+                raw["scriptText"] = "真实脚本全文。"
+                record = normalizer.normalize_detail_records(
+                    raw, material_id="101", source_path="raw-csv/details/101.csv"
+                )
+                self.assertEqual(record["script_text"], "真实脚本全文。")
+                self.assertTrue(record["data_availability"]["script_text"]["available"])
 
     def test_normalize_new_nested_detail_maps_fields_and_five_trend_aliases(self):
         normalizer = load_module()
@@ -301,9 +320,6 @@ class YuntuNormalizerTests(unittest.TestCase):
                     "视频脚本": {"text": "前三秒提出问题"},
                 },
                 "creativeBreakdown": {"hook": "痛点、提问"},
-                "videoScript": {
-                    "segments": [{"startMs": 0, "endMs": 3000, "text": "你是否也有困扰？"}],
-                },
             },
             material_id="101",
             source_path="raw-csv/details/101.csv",
@@ -313,7 +329,7 @@ class YuntuNormalizerTests(unittest.TestCase):
         self.assertEqual(record["title"], "嵌套素材")
         self.assertEqual(record["audience_portrait"]["性别"], ["女"])
         self.assertEqual(record["script_text"], "前三秒提出问题")
-        self.assertEqual(record["script_segments"][0]["start_ms"], 0)
+        self.assertEqual(record["script_segments"], [])
         self.assertEqual(
             [item["trend_name"] for item in record["trend_series"]],
             ["点赞指数", "流失指数", "点击指数", "互动指数", "评论指数"],

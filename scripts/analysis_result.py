@@ -13,7 +13,7 @@ except ImportError:  # pragma: no cover
 
 ALLOWED_TYPES = {"fact", "inference", "recommendation"}
 ALLOWED_CONFIDENCE = {"high", "medium", "low"}
-ALLOWED_SECTIONS = {"material_ranking", "audience", "script", "highlight_frames"}
+ALLOWED_SECTIONS = {"material_ranking", "audience", "script", "highlight_frames", "content_tags", "interaction_series"}
 CAUSAL_MARKERS = ("导致", "因为", "原因是", "驱动", "造成", "促成", "带来", "说明了")
 BRAND_PROXY_MARKERS = ("标题识别品牌", "标签识别品牌", "品牌识别", "品牌归因", "推断品牌")
 BRAND_SEMANTIC_MARKERS = ("品牌", "归因", "品牌表现", "品牌素材")

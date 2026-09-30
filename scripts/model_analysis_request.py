@@ -4,11 +4,11 @@ from __future__ import annotations
 
 try:
     from .analysis_prompt import build_prompt_packet
-    from .analysis_spec import AnalysisSpec
+    from .analysis_spec import AnalysisSpec, parse_analysis_spec
     from .fact_catalog import FactCatalog
 except ImportError:  # pragma: no cover - direct script imports
     from analysis_prompt import build_prompt_packet
-    from analysis_spec import AnalysisSpec
+    from analysis_spec import AnalysisSpec, parse_analysis_spec
     from fact_catalog import FactCatalog
 
 
@@ -128,6 +128,9 @@ def build_model_analysis_request(
     """Create a host-ready, JSON-serializable model handoff request."""
     if not isinstance(spec, AnalysisSpec):
         raise ValueError("spec must be an AnalysisSpec")
+    # The completed fact selection, rather than the initial capability list,
+    # defines the request modules and evidence scope.
+    spec = parse_analysis_spec({**spec.to_dict(), "sections": list(selected_facts["sections"])})
     packet = build_prompt_packet(spec, selected_facts, fact_index)
     rules = list(BASE_SYSTEM_RULES)
     for rule in packet.get("rules", {}).get("quality_gates", []):

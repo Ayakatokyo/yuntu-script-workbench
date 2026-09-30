@@ -31,6 +31,8 @@ FIXED_SECTIONS = (
     ("audience", "四、人群分析"),
     ("script", "五、脚本分析"),
     ("highlight_frames", "六、高光帧分析"),
+    ("content_tags", "七、内容标签分析"),
+    ("interaction_series", "八、互动时序分析"),
 )
 
 SECTION_LABELS = {
@@ -38,6 +40,8 @@ SECTION_LABELS = {
     "audience": "人群分析",
     "script": "脚本分析",
     "highlight_frames": "高光帧分析",
+    "content_tags": "内容标签分析",
+    "interaction_series": "互动时序分析",
 }
 FINDING_TYPE_LABELS = {"fact": "数据事实", "inference": "商业解读", "recommendation": "行动建议"}
 CONFIDENCE_LABELS = {"high": "高", "medium": "中", "low": "低"}
@@ -46,6 +50,8 @@ FACT_SOURCE_LABELS = {
     "facts/audience.json": "人群分析事实",
     "facts/script.json": "脚本内容事实",
     "facts/highlight-frames.json": "高光画面事实",
+    "facts/content-tags.json": "内容标签事实",
+    "facts/interaction-series.json": "互动时序事实",
 }
 
 

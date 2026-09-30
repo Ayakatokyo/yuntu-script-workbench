@@ -221,6 +221,14 @@
     {
       "source": "scripts/rpa_failure.py",
       "destination": "scripts/rpa_failure.py"
+    },
+    {
+      "source": "assets/icon.png",
+      "destination": "assets/icon.png"
+    },
+    {
+      "source": "assets/cover.png",
+      "destination": "assets/cover.png"
     }
   ]
 }

@@ -13,6 +13,11 @@ market:
   category:
     key: short_video_content
     label: 短视频内容
+  icon: assets/icon.png
+  cover: assets/cover.png
+  sop:
+    title: 云图素材脚本工作台说明书V4.0
+    url: https://sample-cube.yuce-tech.cn/api/v1/yucegpt/file_system/view/ws_bfb0d041t5bd9t4f/reports/2026-09-30/%E4%BA%91%E5%9B%BE%E7%B4%A0%E6%9D%90%E8%84%9A%E6%9C%AC%E5%B7%A5%E4%BD%9C%E5%8F%B0%E8%AF%B4%E6%98%8E%E4%B9%A6V4.0/index.html
   badges:
     - label: 云图
       tone: blue

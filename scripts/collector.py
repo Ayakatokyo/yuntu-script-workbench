@@ -1008,7 +1008,7 @@ def _workflow_analysis_context(run_dir, analysis_id):
     )
     selected_packages = selection_payload.get("packages", []) if isinstance(selection_payload, dict) else []
     selected_sections = [item for item in selected_packages if item in {
-        "material_ranking", "audience", "script", "highlight_frames"
+        "material_ranking", "audience", "script", "highlight_frames", "content_tags", "interaction_series"
     }]
     if selected_sections:
         spec_payload = spec.to_dict()
